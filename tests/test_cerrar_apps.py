@@ -14,6 +14,7 @@ def test_cerrar_no_choca_con_apagado_del_sistema(mock_eleven, mock_close, mock_o
 
     class CtxFalso:
         ctx_skills = {"ruta_repo": ".", "pedir_texto_por_voz": lambda p: None}
+        esperando_repetir = False
 
     assert enrutador.procesar("cierra whatsapp", CtxFalso()) == "Cerrando WhatsApp."
     assert enrutador.procesar("cierra la aplicación whatsapp", CtxFalso()) == "Cerrando WhatsApp."

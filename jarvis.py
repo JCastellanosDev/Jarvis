@@ -40,6 +40,7 @@ from intents.notificaciones import NotificacionesIntent
 from intents.obsidian import ObsidianIntent
 from intents.patrones import PatronesIntent
 from intents.recordar import RecordarIntent
+from intents.repetir import RepetirIntent
 from intents.video import VideoIntent
 from intents.vision import VisionIntent
 from intents.volumen import VolumenIntent
@@ -61,6 +62,9 @@ def construir_enrutador():
     # Orden importa: los más específicos van primero, ChatGeneralIntent
     # siempre responde y cierra la cadena.
     return EnrutadorIntents([
+        # RepetirIntent va primero: si está esperando la frase a repetir,
+        # tiene que ganarle a CUALQUIER otro intent (incluido ApagadoIntent).
+        RepetirIntent(),
         ApagadoIntent(),
         CambioVozIntent(VOCES_DISPONIBLES),
         ListarVocesIntent(VOCES_DISPONIBLES),

@@ -6,11 +6,25 @@ manos a la vez en espacio vacío para hacer zoom.
 
 Todo el renderizado del grafo es un canvas 2D con una simulación de físicas
 simple escrita a mano (sin librería externa) — MediaPipe sí se carga desde
-un CDN (necesita internet la primera vez; el navegador lo cachea después)."""
+un CDN (necesita internet la primera vez; el navegador lo cachea después).
 
-from flask import Blueprint, jsonify
+Si Brave no tiene permiso de cámara (Chromium exige su propio permiso de
+sitio ADEMÁS del permiso de macOS), la página también acepta gestos de
+`panel/camara_nativa.py` — un proceso de Python aparte que abre la cámara
+directo con OpenCV/AVFoundation y le manda las manos detectadas a este
+servidor por POST /grafico-obsidian/gesto. La página los lee con GET al
+mismo endpoint y los trata igual que si vinieran de su propia cámara."""
+
+import threading
+import time
+
+from flask import Blueprint, jsonify, request
 
 from skills.grafico_obsidian import construir_grafo
+
+_VENCIMIENTO_GESTO_SEGUNDOS = 1.0
+_bloqueo_gesto = threading.Lock()
+_ultimo_gesto = {"manos": [], "recibido_en": 0.0}
 
 PAGINA_GRAFICO = """<!doctype html>
 <html lang="es">
@@ -62,7 +76,8 @@ PAGINA_GRAFICO = """<!doctype html>
   <p><b id="conteo-nodos">—</b> notas &middot; <b id="conteo-aristas">—</b> conexiones</p>
   <p>Pellizca (pulgar + índice) cerca de un nodo para arrastrarlo.</p>
   <p>Pellizca con las dos manos en el aire para hacer zoom.</p>
-  <p>Sin cámara: también puedes arrastrar con el mouse.</p>
+  <p>Sin cámara en el navegador: corre <b>panel/camara_nativa.py</b> aparte,
+    o arrastra con el mouse.</p>
 </div>
 
 <div id="camara-caja">
@@ -255,9 +270,26 @@ canvas.addEventListener('mousemove', (ev) => { manoMouse.x = ev.clientX; manoMou
 canvas.addEventListener('mousedown', () => { manoMouse.pinzando = true; });
 window.addEventListener('mouseup', () => { manoMouse.pinzando = false; });
 
+// --- Gestos de la app nativa (panel/camara_nativa.py), si está corriendo ---
+// Cuando Brave no tiene permiso de cámara, esta es la fuente real de manos:
+// la app nativa abre la cámara ella misma (fuera del navegador) y manda lo
+// que ve por POST a este mismo servidor; aquí solo lo leemos por polling.
+let manosNativas = [];
+let appNativaConectada = false;
 setInterval(() => {
-  // Si hay manos detectadas por cámara, mandan ellas; si no, el mouse.
-  const entradas = manosActuales.length > 0 ? manosActuales : [manoMouse];
+  fetch('/grafico-obsidian/gesto').then((r) => r.json()).then((datos) => {
+    manosNativas = (datos.manos || []).map((m) => ({
+      x: m.x * canvas.width, y: m.y * canvas.height, pinzando: !!m.pinzando,
+    }));
+    appNativaConectada = datos.activa;
+  }).catch(() => { appNativaConectada = false; });
+}, 1000 / 15);
+
+setInterval(() => {
+  // Prioridad: cámara del navegador > app nativa > mouse.
+  const entradas = manosActuales.length > 0 ? manosActuales
+    : manosNativas.length > 0 ? manosNativas
+    : [manoMouse];
   actualizarInteraccion(entradas);
 }, 1000 / 30);
 
@@ -312,14 +344,26 @@ async function iniciarCamara() {
     });
     await camara.start();
 
-    estadoCamara.textContent = 'Cámara activa — detectando manos';
+    estadoCamara.textContent = 'Cámara del navegador activa — detectando manos';
     estadoCamara.className = 'ok';
   } catch (e) {
-    estadoCamara.textContent = 'Sin cámara (usa el mouse para arrastrar)';
+    estadoCamara.textContent = 'Sin permiso de cámara en el navegador...';
     estadoCamara.className = 'error';
   }
 }
 iniciarCamara();
+
+// Si el navegador no tiene cámara pero la app nativa sí está mandando datos,
+// que el estado lo refleje (se re-evalúa cada vez que llega un gesto nuevo).
+setInterval(() => {
+  if (manosActuales.length > 0) return;  // la cámara del navegador manda, no pisar ese estado
+  if (appNativaConectada) {
+    estadoCamara.textContent = 'Usando panel/camara_nativa.py — detectando manos';
+    estadoCamara.className = 'ok';
+  } else if (estadoCamara.className === 'error') {
+    estadoCamara.textContent = 'Sin cámara (corre panel/camara_nativa.py o usa el mouse)';
+  }
+}, 500);
 </script>
 </body>
 </html>
@@ -336,5 +380,27 @@ def crear_blueprint_grafico():
     @grafico.route("/grafico-obsidian/datos.json", methods=["GET"])
     def datos_grafico():
         return jsonify(construir_grafo())
+
+    @grafico.route("/grafico-obsidian/gesto", methods=["POST"])
+    def recibir_gesto():
+        """panel/camara_nativa.py llama aquí en cada cuadro con las manos que
+        detectó, para que la página del grafo (que puede no tener permiso de
+        cámara en el navegador) las use igual."""
+        cuerpo = request.get_json(silent=True) or {}
+        with _bloqueo_gesto:
+            _ultimo_gesto["manos"] = cuerpo.get("manos", [])
+            _ultimo_gesto["recibido_en"] = time.monotonic()
+        return jsonify(ok=True)
+
+    @grafico.route("/grafico-obsidian/gesto", methods=["GET"])
+    def leer_gesto():
+        """La página del grafo hace polling aquí. Si no ha llegado nada
+        reciente (la app nativa no está corriendo, o se cerró), se reporta
+        como inactiva para no dejar manos fantasma congeladas en pantalla."""
+        with _bloqueo_gesto:
+            vencido = (time.monotonic() - _ultimo_gesto["recibido_en"]) > _VENCIMIENTO_GESTO_SEGUNDOS
+            manos = [] if vencido else _ultimo_gesto["manos"]
+            activa = not vencido and _ultimo_gesto["recibido_en"] > 0
+        return jsonify(manos=manos, activa=activa)
 
     return grafico

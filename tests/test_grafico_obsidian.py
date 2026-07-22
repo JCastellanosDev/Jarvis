@@ -1,9 +1,10 @@
 """construir_grafo() reconstruye a mano lo que la Vista Gráfica nativa de
 Obsidian ya sabe (nodos = notas, aristas = wikilinks [[...]])."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from skills.grafico_obsidian import construir_grafo
+import skills.grafico_obsidian as modulo
+from skills.grafico_obsidian import abrir_camara_nativa, construir_grafo
 
 
 def _con_archivos_falsos(mapa_archivos):
@@ -70,3 +71,28 @@ def test_no_hay_auto_enlaces_ni_duplicados():
     with p1, p2:
         g = construir_grafo()
     assert g["edges"] == [{"origen": "a", "destino": "b"}]
+
+
+def test_abrir_camara_nativa_lanza_el_proceso(monkeypatch):
+    monkeypatch.setattr(modulo, "_proceso_camara_nativa", None)
+    proceso_falso = MagicMock()
+    with patch("skills.grafico_obsidian.subprocess.Popen", return_value=proceso_falso) as mock_popen:
+        assert abrir_camara_nativa(5005) is True
+        mock_popen.assert_called_once()
+        args = mock_popen.call_args[0][0]
+        assert args[-1] == "5005"
+
+
+def test_abrir_camara_nativa_no_duplica_si_ya_esta_corriendo(monkeypatch):
+    proceso_vivo = MagicMock()
+    proceso_vivo.poll.return_value = None  # sigue corriendo
+    monkeypatch.setattr(modulo, "_proceso_camara_nativa", proceso_vivo)
+    with patch("skills.grafico_obsidian.subprocess.Popen") as mock_popen:
+        assert abrir_camara_nativa(5005) is True
+        mock_popen.assert_not_called()
+
+
+def test_abrir_camara_nativa_devuelve_false_si_falla(monkeypatch):
+    monkeypatch.setattr(modulo, "_proceso_camara_nativa", None)
+    with patch("skills.grafico_obsidian.subprocess.Popen", side_effect=OSError("no encontrado")):
+        assert abrir_camara_nativa(5005) is False

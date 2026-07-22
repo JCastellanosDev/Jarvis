@@ -13,10 +13,11 @@ prueba.wav
 # Logs
 logs/
 
-# Modelos y binarios de TTS local (grandes, se descargan aparte)
+# Modelos y binarios de TTS/visión local (grandes, se descargan aparte)
 piper/
 voces/
 kokoro_modelo/
+modelo_gestos/
 
 # Python
 __pycache__/

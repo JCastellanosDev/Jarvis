@@ -5,10 +5,15 @@ aquí a mano porque Obsidian no expone esto por ningún API/archivo propio."""
 
 import os
 import re
+import subprocess
+import sys
 
 from skills.obsidian import EXTENSIONES_VALIDAS, RUTAS_VAULTS
 
 PATRON_WIKILINK = re.compile(r"\[\[([^\]|#]+)")
+
+_RUTA_CAMARA_NATIVA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "panel", "camara_nativa.py")
+_proceso_camara_nativa = None  # evita abrir dos ventanas de cámara si ya está corriendo
 
 
 def _listar_archivos_md():
@@ -57,3 +62,19 @@ def construir_grafo():
     aristas = [{"origen": o, "destino": d} for o, d in aristas_unicas]
 
     return {"nodes": nodos, "edges": aristas}
+
+
+def abrir_camara_nativa(puerto):
+    """Lanza panel/camara_nativa.py en su propia ventana, aparte de Brave —
+    para cuando el navegador no tiene permiso de cámara. Idempotente: si ya
+    hay una instancia corriendo, no abre una segunda.
+
+    Devuelve True si la dejó corriendo (ya sea recién lanzada o de antes)."""
+    global _proceso_camara_nativa
+    if _proceso_camara_nativa is not None and _proceso_camara_nativa.poll() is None:
+        return True
+    try:
+        _proceso_camara_nativa = subprocess.Popen([sys.executable, _RUTA_CAMARA_NATIVA, str(puerto)])
+        return True
+    except OSError:
+        return False

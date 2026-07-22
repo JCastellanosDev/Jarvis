@@ -85,6 +85,17 @@ PAGINA_PANEL = """<!doctype html>
   .boton-voz:hover { border-color: var(--accent); }
   .boton-voz.activa { color: var(--accent); border-color: var(--accent); background: #0d1f1c; }
 
+  /* --- Botón flotante: abrir el grafo de Obsidian (arriba a la derecha) --- */
+  #boton-grafo-obsidian {
+    position: absolute; top: 0.8rem; right: 0.8rem; z-index: 5;
+    display: flex; align-items: center; gap: 0.4rem;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+    color: var(--texto); font-family: inherit; font-size: 0.75rem;
+    padding: 0.5rem 0.8rem; cursor: pointer;
+  }
+  #boton-grafo-obsidian:hover { border-color: var(--accent); color: var(--accent); }
+  #boton-grafo-obsidian .ico { color: var(--accent); }
+
   /* --- Controles --- */
   #controles { grid-area: controles; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6rem; border-top: 1px solid var(--borde); background: var(--panel); }
   .fila-botones { display: flex; gap: 0.8rem; align-items: center; }
@@ -121,6 +132,10 @@ PAGINA_PANEL = """<!doctype html>
 
     <div id="version">JARVIS OS &middot; PANEL v1.0</div>
   </aside>
+
+  <button id="boton-grafo-obsidian" title="Abrir el grafo de tus notas de Obsidian (con gestos por cámara)">
+    <span class="ico">&#128279;</span>Grafo de Obsidian
+  </button>
 
   <div id="reloj-zona">
     <div id="reloj">--:--:--</div>
@@ -376,6 +391,8 @@ PAGINA_PANEL = """<!doctype html>
   });
 
   document.getElementById('item-detener').addEventListener('click', () => botonStop.click());
+
+  document.getElementById('boton-grafo-obsidian').addEventListener('click', () => enviarComando('abre el grafo de mis notas'));
 
   // --- Dictado por voz ---
   const MotorVoz = window.SpeechRecognition || window.webkitSpeechRecognition;

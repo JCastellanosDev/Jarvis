@@ -16,3 +16,7 @@ class IntentContext:
     # (ej. mostrar la lista de voces). El panel la sondea vía /estado.
     panel_evento: dict = None
     registrador_patrones: "core.patrones.RegistradorPatrones" = None
+    # Bandera de un solo uso: True justo después de "repite lo que digo",
+    # hasta que llega la SIGUIENTE frase (esa se repite tal cual y la
+    # bandera se apaga sola) — ver intents/repetir.py.
+    esperando_repetir: bool = False
