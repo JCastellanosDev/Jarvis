@@ -110,11 +110,13 @@ PAGINA_GRAFICO = """<!doctype html>
 <div id="encabezado">
   <h1>GRAFO DE OBSIDIAN</h1>
   <p><b id="conteo-nodos">—</b> notas &middot; <b id="conteo-aristas">—</b> conexiones</p>
-  <p>Pellizca (pulgar + índice) cerca de un nodo para arrastrarlo.</p>
-  <p>Pellizca con las dos manos en el aire para hacer zoom.</p>
-  <p>Rueda del mouse o clic en un nodo: zoom / ver contenido.</p>
+  <p>Pellizca cerca de un nodo y suelta rápido: ver su contenido.</p>
+  <p>Pellizca cerca de un nodo y arrastra: moverlo.</p>
+  <p>Pellizca en el aire y arrastra: mover la vista.</p>
+  <p>Mano abierta, sin pellizcar: acércala o aléjala de la cámara para
+    hacer zoom (o usa la rueda del mouse).</p>
   <p>Sin cámara en el navegador: corre <b>panel/camara_nativa.py</b> aparte,
-    o arrastra con el mouse.</p>
+    o usa el mouse (mismos gestos: clic, arrastrar, rueda).</p>
 </div>
 
 <div id="camara-caja">
@@ -292,86 +294,112 @@ function dibujar() {
 }
 dibujar();
 
-// --- Interacción: arrastrar nodos y hacer zoom (compartido por mano y mouse) ---
+// --- Interacción: TODO con una sola mano (compartido por gesto y mouse) ---
+// Vocabulario de gestos:
+//   · Pellizca (pulgar+índice) cerca de un nodo y suelta rápido, sin apenas
+//     mover la mano  -> abre esa nota (equivalente a un clic).
+//   · Pellizca cerca de un nodo y ARRASTRA                      -> lo mueve.
+//   · Pellizca en el aire (lejos de cualquier nodo) y arrastra  -> mueve la
+//     vista completa (paneo), como si agarraras el lienzo.
+//   · Mano ABIERTA (sin pellizcar) y la acercas o alejas de la cámara
+//     -> zoom in/out, usando el tamaño aparente de la mano en el cuadro
+//     como distancia (más grande = más cerca = zoom in). No hace falta la
+//     segunda mano para nada.
 const sujetadoPorIndice = [null, null];
-let distanciaZoomAnterior = null;
+const paneandoDesdePorIndice = [null, null];
+const pellizcoInicioPorIndice = [null, null];
+const tamanoAnteriorPorIndice = [null, null];
+const UMBRAL_TOQUE_PX = 15;
+const UMBRAL_TOQUE_MS = 450;
 
 function aScreenAWorld(x, y) {
   return { x: (x - panX) / zoom, y: (y - panY) / zoom };
 }
 
 function actualizarInteraccion(entradas) {
-  // entradas: [{x, y, pinzando}, ...] en espacio de PANTALLA (0..canvas.width/height)
+  // entradas: [{x, y, pinzando, tamano?}, ...] en espacio de PANTALLA.
+  const ahora = performance.now();
+
   entradas.forEach((entrada, idx) => {
     const mundo = aScreenAWorld(entrada.x, entrada.y);
+
     if (entrada.pinzando) {
-      if (sujetadoPorIndice[idx] === null) {
+      tamanoAnteriorPorIndice[idx] = null;  // pellizcando no cuenta para el zoom
+
+      if (sujetadoPorIndice[idx] === null && paneandoDesdePorIndice[idx] === null) {
         let mejor = null, mejorDist = 34 / zoom;
         for (const n of nodos) {
           const d = Math.hypot(n.x - mundo.x, n.y - mundo.y);
           if (d < mejorDist) { mejor = n; mejorDist = d; }
         }
-        if (mejor) { sujetadoPorIndice[idx] = mejor.id; mejor.sujetoPor = idx; }
+        pellizcoInicioPorIndice[idx] = { x: entrada.x, y: entrada.y, t: ahora, nodoId: mejor ? mejor.id : null };
+        if (mejor) {
+          sujetadoPorIndice[idx] = mejor.id;
+          mejor.sujetoPor = idx;
+        } else {
+          paneandoDesdePorIndice[idx] = { x: entrada.x, y: entrada.y };
+        }
       }
+
       if (sujetadoPorIndice[idx] !== null) {
         const n = mapaNodos[sujetadoPorIndice[idx]];
         n.x = mundo.x; n.y = mundo.y; n.vx = 0; n.vy = 0;
+      } else if (paneandoDesdePorIndice[idx] !== null) {
+        panX += entrada.x - paneandoDesdePorIndice[idx].x;
+        panY += entrada.y - paneandoDesdePorIndice[idx].y;
+        paneandoDesdePorIndice[idx] = { x: entrada.x, y: entrada.y };
       }
-    } else if (sujetadoPorIndice[idx] !== null) {
-      mapaNodos[sujetadoPorIndice[idx]].sujetoPor = null;
-      sujetadoPorIndice[idx] = null;
+      return;
+    }
+
+    // Se soltó el pellizco (o esta mano nunca estuvo pellizcando).
+    if (sujetadoPorIndice[idx] !== null) mapaNodos[sujetadoPorIndice[idx]].sujetoPor = null;
+
+    const inicio = pellizcoInicioPorIndice[idx];
+    if (inicio && inicio.nodoId) {
+      const distanciaMovida = Math.hypot(entrada.x - inicio.x, entrada.y - inicio.y);
+      if (distanciaMovida < UMBRAL_TOQUE_PX && (ahora - inicio.t) < UMBRAL_TOQUE_MS) {
+        mostrarNota(inicio.nodoId);  // fue un toque, no un arrastre: abre la nota
+      }
+    }
+    sujetadoPorIndice[idx] = null;
+    paneandoDesdePorIndice[idx] = null;
+    pellizcoInicioPorIndice[idx] = null;
+
+    // Zoom con una sola mano abierta: compara el tamaño de la mano en este
+    // cuadro contra el del cuadro anterior. Solo con UNA mano visible, para
+    // no pelearse con la otra si algún día hay dos en pantalla.
+    if (entradas.length === 1 && entrada.tamano) {
+      if (tamanoAnteriorPorIndice[idx] !== null) {
+        const factor = entrada.tamano / tamanoAnteriorPorIndice[idx];
+        zoom = Math.max(0.3, Math.min(3, zoom * Math.pow(factor, 0.6)));
+      }
+      tamanoAnteriorPorIndice[idx] = entrada.tamano;
+    } else {
+      tamanoAnteriorPorIndice[idx] = null;
     }
   });
-
-  const ambasManosPellizcandoEnVacio = entradas.length === 2
-    && entradas[0].pinzando && entradas[1].pinzando
-    && sujetadoPorIndice[0] === null && sujetadoPorIndice[1] === null;
-
-  if (ambasManosPellizcandoEnVacio) {
-    const distActual = Math.hypot(entradas[0].x - entradas[1].x, entradas[0].y - entradas[1].y);
-    if (distanciaZoomAnterior !== null) {
-      zoom = Math.max(0.3, Math.min(3, zoom * (distActual / distanciaZoomAnterior)));
-    }
-    distanciaZoomAnterior = distActual;
-  } else {
-    distanciaZoomAnterior = null;
-  }
 }
 
 // --- Respaldo con mouse (por si no hay cámara o no la quieres usar) ---
+// Pasa por la MISMA actualizarInteraccion de arriba: arrastrar nodos, hacer
+// clic para ver una nota, y arrastrar en vacío para mover la vista también
+// funcionan con el mouse, gratis, al ser el mismo código.
 let manoMouse = { x: 0, y: 0, pinzando: false };
 canvas.addEventListener('mousemove', (ev) => { manoMouse.x = ev.clientX; manoMouse.y = ev.clientY; });
 canvas.addEventListener('mousedown', () => { manoMouse.pinzando = true; });
 window.addEventListener('mouseup', () => { manoMouse.pinzando = false; });
 
-// --- Zoom con la rueda del mouse (además del pellizco a dos manos) ---
+// --- Zoom con la rueda del mouse (respaldo directo, sin gestos) ---
 canvas.addEventListener('wheel', (ev) => {
   ev.preventDefault();
   const factor = ev.deltaY < 0 ? 1.1 : 1 / 1.1;
   zoom = Math.max(0.3, Math.min(3, zoom * factor));
 }, { passive: false });
 
-// --- Clic en un nodo: ver qué tiene adentro ---
 const panelNota = document.getElementById('panel-nota');
 const panelNotaTitulo = document.getElementById('panel-nota-titulo');
 const panelNotaContenido = document.getElementById('panel-nota-contenido');
-let posicionMouseAbajo = null;
-
-canvas.addEventListener('mousedown', (ev) => { posicionMouseAbajo = { x: ev.clientX, y: ev.clientY }; });
-canvas.addEventListener('mouseup', (ev) => {
-  if (!posicionMouseAbajo) return;
-  const distanciaArrastrada = Math.hypot(ev.clientX - posicionMouseAbajo.x, ev.clientY - posicionMouseAbajo.y);
-  posicionMouseAbajo = null;
-  if (distanciaArrastrada > 6) return;  // fue un arrastre, no un clic
-
-  const mundo = aScreenAWorld(ev.clientX, ev.clientY);
-  let mejor = null, mejorDist = 20 / zoom;
-  for (const n of nodos) {
-    const d = Math.hypot(n.x - mundo.x, n.y - mundo.y);
-    if (d < mejorDist) { mejor = n; mejorDist = d; }
-  }
-  if (mejor) mostrarNota(mejor.id);
-});
 
 function mostrarNota(id) {
   panelNotaTitulo.textContent = id;
@@ -406,7 +434,7 @@ let appNativaConectada = false;
 setInterval(() => {
   fetch('/grafico-obsidian/gesto').then((r) => r.json()).then((datos) => {
     manosNativas = (datos.manos || []).map((m) => ({
-      x: m.x * canvas.width, y: m.y * canvas.height, pinzando: !!m.pinzando,
+      x: m.x * canvas.width, y: m.y * canvas.height, pinzando: !!m.pinzando, tamano: m.tamano || 0,
     }));
     appNativaConectada = datos.activa;
   }).catch(() => { appNativaConectada = false; });
@@ -444,7 +472,13 @@ function onResultadosManos(resultados) {
       const yPulgar = pulgar.y * canvas.height;
       const distPinza = Math.hypot(xIndice - xPulgar, yIndice - yPulgar);
 
-      manosActuales.push({ x: xIndice, y: yIndice, pinzando: distPinza < UMBRAL_PINZA_PX });
+      // Tamaño de la mano en el cuadro (muñeca a base del dedo medio, en
+      // espacio normalizado 0..1) — más grande cuanto más cerca de la
+      // cámara la tengas. Sirve como "control de zoom" con una sola mano.
+      const muneca = puntos[0], baseMedio = puntos[9];
+      const tamanoMano = Math.hypot(baseMedio.x - muneca.x, baseMedio.y - muneca.y);
+
+      manosActuales.push({ x: xIndice, y: yIndice, pinzando: distPinza < UMBRAL_PINZA_PX, tamano: tamanoMano });
 
       // Puntitos de la mano en el recuadro de la cámara (referencia visual).
       ctxOverlay.fillStyle = '#00e5c3';

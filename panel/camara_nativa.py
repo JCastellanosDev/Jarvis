@@ -69,7 +69,15 @@ def _extraer_manos(resultado):
         x = 1 - indice.x
         y = indice.y
         distancia = ((pulgar.x - indice.x) ** 2 + (pulgar.y - indice.y) ** 2) ** 0.5
-        manos.append({"x": x, "y": y, "pinzando": distancia < UMBRAL_PINZA_NORMALIZADO})
+        # Tamaño de la mano en el cuadro (muñeca a base del dedo medio): más
+        # grande cuanto más cerca de la cámara la tengas — el navegador lo
+        # usa como control de zoom con una sola mano (sin pellizcar).
+        muneca = puntos[0]
+        base_medio = puntos[9]
+        tamano = ((base_medio.x - muneca.x) ** 2 + (base_medio.y - muneca.y) ** 2) ** 0.5
+        manos.append({
+            "x": x, "y": y, "pinzando": distancia < UMBRAL_PINZA_NORMALIZADO, "tamano": tamano,
+        })
     return manos
 
 
