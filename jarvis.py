@@ -12,6 +12,7 @@ import time
 from core.cerebro import CerebroOllama
 from core.config import Settings, VOCES_DISPONIBLES
 from core.contexto import IntentContext
+from core.eco import es_eco_de_si_mismo
 from core.hablante import Hablante
 from core.memoria import MemoriaPersistente
 from core.oyente import Oyente
@@ -31,9 +32,11 @@ from intents.descargas import DescargasIntent
 from intents.enrutador import EnrutadorIntents
 from intents.fecha_hora import FechaHoraIntent
 from intents.github_sync import GithubSyncIntent
+from intents.grafico_obsidian import GraficoObsidianIntent
 from intents.instalador import InstaladorIntent
 from intents.listar_voces import ListarVocesIntent
 from intents.multimedia import MultimediaIntent
+from intents.notificaciones import NotificacionesIntent
 from intents.obsidian import ObsidianIntent
 from intents.patrones import PatronesIntent
 from intents.recordar import RecordarIntent
@@ -69,12 +72,14 @@ def construir_enrutador():
         WhatsAppIntent(),
         DescargasIntent(),
         InstaladorIntent(),
+        NotificacionesIntent(),
         VolumenIntent(),
         MultimediaIntent(),
         VideoIntent(),
         AccionesSkillsIntent(),
         AplicacionesIntent(),
         GithubSyncIntent(),
+        GraficoObsidianIntent(),
         ObsidianIntent(),
         BuscarCodigoIntent(),
         BusquedaWebIntent(),
@@ -148,6 +153,7 @@ def main():
     ctx_skills = {
         "ruta_repo": os.path.dirname(os.path.abspath(__file__)),
         "pedir_texto_por_voz": crear_pedir_texto_por_voz(hablante, oyente),
+        "puerto_remoto": settings.puerto_remoto,
     }
     ctx = IntentContext(
         hablante=hablante, memoria=memoria, cerebro=cerebro, ctx_skills=ctx_skills,
@@ -195,6 +201,10 @@ def main():
 
             texto_usuario = oyente.escuchar()
             if not texto_usuario:
+                continue
+
+            if es_eco_de_si_mismo(texto_usuario, hablante.ultimo_texto_hablado):
+                print(f"[Jarvis] Ignorando eco de mi propia voz: '{texto_usuario}'")
                 continue
 
             detener = False

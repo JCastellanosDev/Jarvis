@@ -2,14 +2,21 @@
 Brave, directo a tu carpeta de Descargas.
 
 Requiere ffmpeg para mezclar audio+video en buena calidad y para extraer
-mp3 — instálalo una vez con `brew install ffmpeg` si no lo tienes."""
+mp3 — instálalo una vez con `brew install ffmpeg` si no lo tienes.
+
+Las descargas corren en segundo plano (no bloquean a Jarvis mientras se
+descarga un video largo) y avisan por voz + notificación push (ntfy.sh)
+cuando terminan — mismo patrón que skills/instalador.py."""
 
 import os
 import subprocess
+import threading
 from urllib.parse import urlparse
 
 import requests
 import yt_dlp
+
+from skills.notificaciones import enviar_notificacion
 
 CARPETA_DESCARGAS = os.path.expanduser("~/Downloads")
 DOMINIOS_YOUTUBE = ("youtube.com", "youtu.be", "music.youtube.com")
@@ -90,3 +97,24 @@ def descargar_lo_abierto_en_navegador():
     if _es_youtube(url):
         return descargar_youtube(url, solo_audio=False)
     return _descargar_url_directa(url)
+
+
+def _en_segundo_plano(funcion_descarga, hablante):
+    def _tarea():
+        mensaje = funcion_descarga()
+        hablante.hablar(mensaje)
+        enviar_notificacion("Descarga completa", mensaje)
+
+    hilo = threading.Thread(target=_tarea, daemon=True)
+    hilo.start()
+    return hilo
+
+
+def descargar_youtube_en_segundo_plano(consulta_o_url, solo_audio, hablante):
+    """No bloquea a Jarvis mientras se descarga un video largo — avisa por
+    voz y por notificación push cuando termina."""
+    return _en_segundo_plano(lambda: descargar_youtube(consulta_o_url, solo_audio), hablante)
+
+
+def descargar_lo_abierto_en_navegador_en_segundo_plano(hablante):
+    return _en_segundo_plano(descargar_lo_abierto_en_navegador, hablante)

@@ -16,6 +16,7 @@ logs/
 # Modelos y binarios de TTS local (grandes, se descargan aparte)
 piper/
 voces/
+kokoro_modelo/
 
 # Python
 __pycache__/
@@ -23,6 +24,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+venv_kokoro/
 
 # IDE / herramientas locales
 .idea/

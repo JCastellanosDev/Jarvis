@@ -24,6 +24,7 @@ from flask import Flask, jsonify, request
 from core.config import VOCES_DISPONIBLES
 from core.pwa import META_TAGS_PWA, registrar_rutas_pwa
 from intents.base import DetenerJarvis
+from panel.grafico import crear_blueprint_grafico
 from panel.vista import crear_blueprint_panel
 
 PAGINA = """<!doctype html>
@@ -166,7 +167,10 @@ PAGINA = """<!doctype html>
 
       const datos = await resp.json();
       pendiente.classList.remove('pendiente');
-      const aviso = datos.voz_sistema ? ' <i>(voz de respaldo del sistema — sin créditos de ElevenLabs)</i>' : '';
+      const nombresMotor = { kokoro: 'voz local (Kokoro)', sistema: 'voz del sistema (macOS)' };
+      const aviso = datos.voz_sistema
+        ? ` <i>(${nombresMotor[datos.motor_voz] || 'voz local'} — sin ElevenLabs)</i>`
+        : '';
       pendiente.innerHTML = '<span class="rotulo">JARVIS</span>' + escaparHtml(datos.respuesta || '(sin respuesta)') + aviso;
 
       if (datos.audio_base64) {
@@ -240,6 +244,7 @@ PAGINA = """<!doctype html>
 def crear_app(enrutador, ctx, hablante, token=None):
     app = Flask(__name__)
     app.register_blueprint(crear_blueprint_panel())
+    app.register_blueprint(crear_blueprint_grafico())
     registrar_rutas_pwa(app, "Jarvis Control Remoto", "Jarvis")
 
     def _autorizado():
@@ -297,7 +302,9 @@ def crear_app(enrutador, ctx, hablante, token=None):
                     audio_bytes, mime_type = hablante.sintetizar(respuesta)
                     if reproducir_local and audio_bytes:
                         lock_transferido_a_hilo = True
-                        hablante.reproducir_en_segundo_plano(audio_bytes, mime_type, al_terminar=ctx.lock.release)
+                        hablante.reproducir_en_segundo_plano(
+                            audio_bytes, mime_type, texto=respuesta, al_terminar=ctx.lock.release
+                        )
         finally:
             if not lock_transferido_a_hilo:
                 ctx.lock.release()
@@ -307,6 +314,7 @@ def crear_app(enrutador, ctx, hablante, token=None):
             audio_base64=base64.b64encode(audio_bytes).decode("ascii") if audio_bytes else None,
             audio_mime=mime_type,
             voz_sistema=hablante.usando_voz_sistema,
+            motor_voz=hablante.motor_voz,
         )
 
     @app.route("/estado", methods=["GET"])

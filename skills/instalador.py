@@ -13,6 +13,8 @@ equivocado si el nombre no fue exacto.
 import subprocess
 import threading
 
+from skills.notificaciones import enviar_notificacion
+
 TIMEOUT_BUSQUEDA = 20
 TIMEOUT_INSTALACION = 600  # casks grandes (navegadores, IDEs) pueden tardar
 
@@ -59,6 +61,7 @@ def _instalar(candidato, tipo, hablante):
     except OSError as e:
         mensaje = f"No pude instalar {candidato}: {e}"
     hablante.hablar(mensaje)
+    enviar_notificacion("Instalación de Jarvis", mensaje)
 
 
 def instalar_en_segundo_plano(candidato, tipo, hablante):

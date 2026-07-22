@@ -1,11 +1,13 @@
 """Responsable único de convertir texto a voz y reproducirlo (ElevenLabs +
 afplay), con soporte para interrumpir la reproducción a mitad de frase.
 
-Si ElevenLabs falla (sin créditos, sin conexión, error de API), cae
-automáticamente a la voz nativa de macOS (`say`) en vez de quedarse mudo.
-Es una voz de menor calidad, pero Jarvis nunca deja de poder hablar.
+Cadena de respaldo, de mejor a peor calidad, para que Jarvis nunca se quede
+mudo: ElevenLabs (nube, requiere créditos) -> Kokoro (local, gratis, buena
+calidad) -> voz nativa de macOS `say` (local, última red de seguridad si
+Kokoro no tiene los archivos del modelo descargados).
 """
 
+import io
 import os
 import select
 import subprocess
@@ -25,27 +27,45 @@ except ImportError:  # plataformas sin terminal POSIX (no aplica en macOS)
 
 EXTENSION_POR_MIME = {"audio/mpeg": ".mp3", "audio/wav": ".wav"}
 
+RUTA_MODELO_KOKORO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kokoro_modelo")
+RUTA_ONNX_KOKORO = os.path.join(RUTA_MODELO_KOKORO, "kokoro-v1.0.onnx")
+RUTA_VOCES_KOKORO = os.path.join(RUTA_MODELO_KOKORO, "voices-v1.0.bin")
+# es-419 = español "neutro"/latinoamericano en espeak-ng (vs "es" = España),
+# lo que más se acerca a "latinoamericano" que ofrece el phonemizer de Kokoro
+# — la voz en sí (el timbre) no tiene acento regional propio, es el mismo
+# modelo entrenado con datos multilingües genéricos.
+IDIOMA_KOKORO = "es-419"
+VOZ_KOKORO_POR_DEFECTO = "em_alex"  # ef_dora (mujer), em_alex/em_santa (hombre)
+
 
 class Hablante:
     def __init__(self, api_key, voice_id, modelo="eleven_multilingual_v2", voz_sistema="Paulina",
-                 forzar_voz_sistema=False):
+                 forzar_voz_sistema=False, voz_kokoro=None):
         self._cliente = ElevenLabs(api_key=api_key) if api_key else None
         self.voice_id = voice_id  # mutable: CambioVozIntent lo actualiza en caliente
         self._modelo = modelo
         self._voz_sistema = voz_sistema  # voz de respaldo de macOS (`say -v '?'` lista las instaladas)
+        self._voz_kokoro = voz_kokoro or os.getenv("KOKORO_VOZ", VOZ_KOKORO_POR_DEFECTO)
+        self._kokoro = None  # instancia perezosa: cargar el modelo tarda, solo la primera vez
+        self._kokoro_no_disponible = False  # evita reintentar cargar en cada frase si ya falló una vez
         # Mientras no tengas créditos de ElevenLabs, evita el intento de red
-        # que de todos modos va a fallar (más lento) — usa la voz del
-        # sistema directo. Cámbialo a False en cuanto recuperes créditos.
+        # que de todos modos va a fallar (más lento) — usa Kokoro (voz local)
+        # directo. Cámbialo a False en cuanto recuperes créditos.
         self.forzar_voz_sistema = forzar_voz_sistema
         self._proceso_actual = None
         self.hablando = False  # el panel lo sondea para animar la esfera aunque el audio no venga de él
-        self.usando_voz_sistema = False  # el panel/remoto puede mostrarlo como aviso
+        self.usando_voz_sistema = False  # True si NO es ElevenLabs (Kokoro o macOS); el panel/remoto lo usa como aviso
+        self.motor_voz = "elevenlabs"  # "elevenlabs" | "kokoro" | "sistema" — cuál sonó de verdad
+        # Lo último que Jarvis dijo por CUALQUIER canal (voz local o remoto):
+        # el bucle principal lo usa para descartar que el micrófono se
+        # escuche a sí mismo y lo trate como un comando nuevo (ver core/eco.py).
+        self.ultimo_texto_hablado = None
 
     def sintetizar(self, texto):
         """Genera el audio y devuelve (bytes, mime_type), o (None, None) si
-        todo falla. Intenta ElevenLabs primero; si no hay créditos/conexión,
-        cae a la voz nativa de macOS (o si forzar_voz_sistema está activo, ni
-        siquiera lo intenta)."""
+        todo falla. Orden: ElevenLabs (si hay créditos y no está forzada la
+        voz local) -> Kokoro (voz local de buena calidad) -> `say` de macOS
+        como último recurso si Kokoro no tiene los archivos del modelo."""
         if not texto or not texto.strip():
             return None, None
 
@@ -53,15 +73,56 @@ class Hablante:
             audio_bytes = self._sintetizar_elevenlabs(texto)
             if audio_bytes:
                 self.usando_voz_sistema = False
+                self.motor_voz = "elevenlabs"
                 return audio_bytes, "audio/mpeg"
-            print("[Jarvis] ElevenLabs no disponible (¿sin créditos?), uso la voz del sistema.")
+            print("[Jarvis] ElevenLabs no disponible (¿sin créditos?), uso Kokoro (voz local).")
 
+        audio_bytes = self._sintetizar_kokoro(texto)
+        if audio_bytes:
+            self.usando_voz_sistema = True
+            self.motor_voz = "kokoro"
+            return audio_bytes, "audio/wav"
+
+        print("[Jarvis] Kokoro no disponible, uso la voz nativa de macOS como último recurso.")
         audio_bytes = self._sintetizar_sistema(texto)
         if audio_bytes:
             self.usando_voz_sistema = True
+            self.motor_voz = "sistema"
             return audio_bytes, "audio/wav"
 
         return None, None
+
+    def _obtener_kokoro(self):
+        if self._kokoro is not None or self._kokoro_no_disponible:
+            return self._kokoro
+        try:
+            from kokoro_onnx import Kokoro
+            if not os.path.exists(RUTA_ONNX_KOKORO) or not os.path.exists(RUTA_VOCES_KOKORO):
+                raise FileNotFoundError(
+                    f"Faltan los archivos del modelo en {RUTA_MODELO_KOKORO} "
+                    "(kokoro-v1.0.onnx y voices-v1.0.bin)."
+                )
+            self._kokoro = Kokoro(RUTA_ONNX_KOKORO, RUTA_VOCES_KOKORO)
+        except Exception as e:
+            print(f"[Jarvis] No pude cargar Kokoro: {e}")
+            self._kokoro_no_disponible = True
+        return self._kokoro
+
+    def _sintetizar_kokoro(self, texto):
+        kokoro = self._obtener_kokoro()
+        if not kokoro:
+            return None
+        try:
+            import soundfile as sf
+            muestras, tasa_muestreo = kokoro.create(
+                texto, voice=self._voz_kokoro, speed=1.0, lang=IDIOMA_KOKORO
+            )
+            buffer = io.BytesIO()
+            sf.write(buffer, muestras, tasa_muestreo, format="WAV")
+            return buffer.getvalue()
+        except Exception as e:
+            print(f"[Jarvis] Error en Kokoro: {e}")
+            return None
 
     def _sintetizar_elevenlabs(self, texto):
         if not self._cliente:
@@ -110,10 +171,11 @@ class Hablante:
         audio_bytes, mime_type = self.sintetizar(texto)
         if not audio_bytes:
             return None, None
+        self.ultimo_texto_hablado = texto
         self._reproducir_localmente(audio_bytes, mime_type)
         return audio_bytes, mime_type
 
-    def reproducir_en_segundo_plano(self, audio_bytes, mime_type, al_terminar=None):
+    def reproducir_en_segundo_plano(self, audio_bytes, mime_type, texto=None, al_terminar=None):
         """Reproduce localmente en un hilo aparte y regresa de inmediato —
         para que quien llama pueda responder (ej. al celular) sin esperar a
         que termine de sonar en la Mac.
@@ -122,6 +184,9 @@ class Hablante:
         entre un comando nuevo mientras esto suena (ej. soltando un lock
         compartido solo en `al_terminar`, no antes) — si dos reproducciones
         se superponen vas a escuchar dos voces a la vez."""
+        if texto:
+            self.ultimo_texto_hablado = texto
+
         def _tarea():
             try:
                 self._reproducir_localmente(audio_bytes, mime_type)

@@ -35,11 +35,13 @@ def test_nada_encontrado_devuelve_none():
         assert tipo is None
 
 
-def test_instalar_en_segundo_plano_no_bloquea_y_avisa_por_voz_al_terminar():
+def test_instalar_en_segundo_plano_no_bloquea_y_avisa_por_voz_y_push_al_terminar():
     """No debe bloquear el hilo que llama (Jarvis debe seguir funcionando
-    mientras Homebrew instala) y debe avisar por voz cuando termine."""
+    mientras Homebrew instala) y debe avisar por voz + notificación push
+    cuando termine."""
     hablante = MagicMock()
-    with patch("skills.instalador.subprocess.run") as mock_run:
+    with patch("skills.instalador.subprocess.run") as mock_run, \
+         patch("skills.instalador.enviar_notificacion") as mock_notificar:
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
         hilo = instalar_en_segundo_plano("spotify", "cask", hablante)
@@ -48,11 +50,13 @@ def test_instalar_en_segundo_plano_no_bloquea_y_avisa_por_voz_al_terminar():
 
     hablante.hablar.assert_called_once()
     assert "instalado" in hablante.hablar.call_args.args[0].lower()
+    mock_notificar.assert_called_once()
 
 
 def test_instalar_reporta_error_por_voz_si_brew_falla():
     hablante = MagicMock()
-    with patch("skills.instalador.subprocess.run") as mock_run:
+    with patch("skills.instalador.subprocess.run") as mock_run, \
+         patch("skills.instalador.enviar_notificacion"):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="No available formula")
 
         hilo = instalar_en_segundo_plano("noexiste", "formula", hablante)

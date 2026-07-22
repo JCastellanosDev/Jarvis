@@ -349,7 +349,8 @@ PAGINA_PANEL = """<!doctype html>
         if (token) { localStorage.setItem('jarvis_token', token); marcarOcupado(false); return enviarComando(texto); }
       }
       const datos = await resp.json();
-      const aviso = datos.voz_sistema ? ' (voz de respaldo del sistema)' : '';
+      const nombresMotor = { kokoro: 'voz local: Kokoro', sistema: 'voz local: sistema' };
+      const aviso = datos.voz_sistema ? ' (' + (nombresMotor[datos.motor_voz] || 'voz local') + ')' : '';
       caption.innerHTML = '<b>JARVIS:</b> ' + (datos.respuesta || '(sin respuesta)') + aviso;
       if (datos.audio_base64) reproducirRespuesta(datos.audio_base64, datos.audio_mime);
       actualizarEstado();

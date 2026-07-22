@@ -56,7 +56,7 @@ class Settings:
         return cls(
             elevenlabs_api_key=api_key,
             voice_id=os.getenv("VOICE_ID") or VOCES_DISPONIBLES[VOZ_POR_DEFECTO],
-            modelo_ollama=os.getenv("MODELO_OLLAMA", "llama3.2:1b"),
+            modelo_ollama=os.getenv("MODELO_OLLAMA", "llama3.2:3b"),
             max_turnos_contexto=int(os.getenv("MAX_TURNOS_CONTEXTO", "4")),
             puerto_remoto=int(os.getenv("JARVIS_REMOTE_PORT", "5005")),
             token_remoto=os.getenv("JARVIS_REMOTE_TOKEN") or None,

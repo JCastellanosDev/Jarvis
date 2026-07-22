@@ -3,7 +3,10 @@ archivos y llamaría a Brave si no lo estuvieran."""
 
 from unittest.mock import MagicMock, patch
 
-from skills.descargas import descargar_lo_abierto_en_navegador, descargar_youtube
+from skills.descargas import (
+    descargar_lo_abierto_en_navegador, descargar_lo_abierto_en_navegador_en_segundo_plano,
+    descargar_youtube, descargar_youtube_en_segundo_plano,
+)
 
 
 def test_descargar_youtube_arma_bien_las_opciones_de_audio():
@@ -77,3 +80,26 @@ def test_descargar_lo_abierto_en_navegador_archivo_directo():
             resultado = descargar_lo_abierto_en_navegador()
 
         assert "archivo.pdf" in resultado
+
+
+def test_descarga_en_segundo_plano_no_bloquea_y_avisa_por_voz_y_push():
+    hablante = MagicMock()
+    with patch("skills.descargas.descargar_youtube", return_value="Descargué el video de X."), \
+         patch("skills.descargas.enviar_notificacion") as mock_notificar:
+        hilo = descargar_youtube_en_segundo_plano("bohemian rhapsody", False, hablante)
+        assert hilo.daemon is True
+        hilo.join(timeout=2)
+
+    hablante.hablar.assert_called_once_with("Descargué el video de X.")
+    mock_notificar.assert_called_once_with("Descarga completa", "Descargué el video de X.")
+
+
+def test_descarga_de_lo_abierto_en_segundo_plano():
+    hablante = MagicMock()
+    with patch("skills.descargas.descargar_lo_abierto_en_navegador", return_value="Descargué lo abierto."), \
+         patch("skills.descargas.enviar_notificacion") as mock_notificar:
+        hilo = descargar_lo_abierto_en_navegador_en_segundo_plano(hablante)
+        hilo.join(timeout=2)
+
+    hablante.hablar.assert_called_once_with("Descargué lo abierto.")
+    mock_notificar.assert_called_once_with("Descarga completa", "Descargué lo abierto.")
