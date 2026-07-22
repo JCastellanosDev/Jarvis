@@ -107,6 +107,14 @@ let gradoPorNodo = {};
 let zoom = 1;
 let panX = 0, panY = 0;
 
+// Declarado aquí (no más abajo, junto al resto de la interacción) a
+// propósito: dibujar() la usa y se llama de forma síncrona más abajo, antes
+// de llegar a esa otra sección — un `let` referenciado antes de su propia
+// línea de declaración lanza ReferenceError (temporal dead zone) y mataba
+// el loop de animación desde el primer frame, dejando el canvas en blanco
+// para siempre aunque los datos sí llegaran bien.
+let manosActuales = [];
+
 fetch('/grafico-obsidian/datos.json').then((r) => r.json()).then((datos) => {
   document.getElementById('conteo-nodos').textContent = datos.nodes.length;
   document.getElementById('conteo-aristas').textContent = datos.edges.length;
@@ -218,7 +226,6 @@ function dibujar() {
 dibujar();
 
 // --- Interacción: arrastrar nodos y hacer zoom (compartido por mano y mouse) ---
-let manosActuales = [];
 const sujetadoPorIndice = [null, null];
 let distanciaZoomAnterior = null;
 
