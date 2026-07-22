@@ -53,18 +53,14 @@ PAGINA_GRAFICO = """<!doctype html>
   #encabezado p { margin: 0.15rem 0; font-size: 0.68rem; color: var(--texto-dim); line-height: 1.4; }
   #encabezado b { color: var(--texto); }
 
-  #camara-caja {
-    position: absolute; bottom: 0.8rem; right: 0.8rem; z-index: 5;
-    width: 200px; border: 1px solid var(--borde); border-radius: 10px; overflow: hidden;
-    background: var(--panel);
-  }
   #video { display: none; }
-  #overlay-camara { width: 200px; height: 150px; display: block; transform: scaleX(-1); }
   #estado-camara {
-    font-size: 0.62rem; color: var(--texto-dim); padding: 0.3rem 0.5rem;
-    border-top: 1px solid var(--borde); text-transform: uppercase; letter-spacing: 0.06em;
+    position: absolute; bottom: 0.8rem; right: 0.8rem; z-index: 5;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+    font-size: 0.68rem; color: var(--texto-dim); padding: 0.5rem 0.8rem;
+    text-transform: uppercase; letter-spacing: 0.06em;
   }
-  #estado-camara.ok { color: var(--accent); }
+  #estado-camara.ok { color: var(--accent); border-color: var(--accent-dim); }
   #estado-camara.error { color: var(--alerta); }
 
   #panel-nota {
@@ -115,15 +111,14 @@ PAGINA_GRAFICO = """<!doctype html>
   <p>Pellizca en el aire y arrastra: mover la vista.</p>
   <p>Mano abierta, sin pellizcar: acércala o aléjala de la cámara para
     hacer zoom (o usa la rueda del mouse).</p>
+  <p>Si el navegador tiene permiso de cámara, los nodos aparecen encima de
+    tu propia imagen (realidad aumentada).</p>
   <p>Sin cámara en el navegador: corre <b>panel/camara_nativa.py</b> aparte,
     o usa el mouse (mismos gestos: clic, arrastrar, rueda).</p>
 </div>
 
-<div id="camara-caja">
-  <video id="video" autoplay playsinline></video>
-  <canvas id="overlay-camara" width="200" height="150"></canvas>
-  <div id="estado-camara">Pidiendo permiso de cámara...</div>
-</div>
+<video id="video" autoplay playsinline></video>
+<div id="estado-camara">Pidiendo permiso de cámara...</div>
 
 <div id="panel-nota">
   <div class="fila-titulo">
@@ -159,13 +154,15 @@ let gradoPorNodo = {};
 let zoom = 1;
 let panX = 0, panY = 0;
 
-// Declarado aquí (no más abajo, junto al resto de la interacción) a
-// propósito: dibujar() la usa y se llama de forma síncrona más abajo, antes
-// de llegar a esa otra sección — un `let` referenciado antes de su propia
-// línea de declaración lanza ReferenceError (temporal dead zone) y mataba
-// el loop de animación desde el primer frame, dejando el canvas en blanco
-// para siempre aunque los datos sí llegaran bien.
+// Declarados aquí (no más abajo, junto al resto de cámara/interacción) a
+// propósito: dibujar() los usa y se llama de forma síncrona más abajo,
+// antes de llegar a esas otras secciones — un `let`/`const` referenciado
+// antes de su propia línea de declaración lanza ReferenceError (temporal
+// dead zone) y mataba el loop de animación desde el primer frame, dejando
+// el canvas en blanco para siempre aunque los datos sí llegaran bien.
 let manosActuales = [];
+const video = document.getElementById('video');
+let camaraNavegadorActiva = false;  // true = hay video real que dibujar de fondo (estilo realidad aumentada)
 
 let primeraCarga = true;
 
@@ -253,6 +250,21 @@ function pasoFisica() {
 function dibujar() {
   pasoFisica();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Tu propia cámara de fondo (si el navegador tiene permiso): los nodos
+  // quedan dibujados encima, estilo realidad aumentada, en vez de en una
+  // cajita aparte. Espejada para que coincida con el espacio "selfie" en
+  // el que ya se calculan las posiciones de las manos.
+  if (camaraNavegadorActiva && video.readyState >= 2) {
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.translate(-canvas.width, 0);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(3, 5, 7, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
   ctx.save();
   ctx.translate(panX, panY);
   ctx.scale(zoom, zoom);
@@ -449,18 +461,15 @@ setInterval(() => {
 }, 1000 / 30);
 
 // --- Cámara + MediaPipe Hands ---
-const video = document.getElementById('video');
-const overlayCamara = document.getElementById('overlay-camara');
-const ctxOverlay = overlayCamara.getContext('2d');
+// El video ya NO se dibuja aparte en una cajita: se mete de fondo en el
+// canvas principal (ver dibujar()) para que los nodos aparezcan encima de
+// tu propia cámara, estilo realidad aumentada — y los puntitos de las
+// manos (ver el loop de "manosActuales" en dibujar()) también quedan sobre
+// el video real en vez de en un recuadro chico aparte.
 const estadoCamara = document.getElementById('estado-camara');
 const UMBRAL_PINZA_PX = 40;
 
 function onResultadosManos(resultados) {
-  ctxOverlay.save();
-  ctxOverlay.clearRect(0, 0, overlayCamara.width, overlayCamara.height);
-  ctxOverlay.drawImage(resultados.image, 0, 0, overlayCamara.width, overlayCamara.height);
-  ctxOverlay.restore();
-
   manosActuales = [];
   if (resultados.multiHandLandmarks) {
     for (const puntos of resultados.multiHandLandmarks) {
@@ -479,14 +488,6 @@ function onResultadosManos(resultados) {
       const tamanoMano = Math.hypot(baseMedio.x - muneca.x, baseMedio.y - muneca.y);
 
       manosActuales.push({ x: xIndice, y: yIndice, pinzando: distPinza < UMBRAL_PINZA_PX, tamano: tamanoMano });
-
-      // Puntitos de la mano en el recuadro de la cámara (referencia visual).
-      ctxOverlay.fillStyle = '#00e5c3';
-      for (const p of puntos) {
-        ctxOverlay.beginPath();
-        ctxOverlay.arc(p.x * overlayCamara.width, p.y * overlayCamara.height, 2, 0, Math.PI * 2);
-        ctxOverlay.fill();
-      }
     }
   }
 }
@@ -505,9 +506,11 @@ async function iniciarCamara() {
     });
     await camara.start();
 
+    camaraNavegadorActiva = true;
     estadoCamara.textContent = 'Cámara del navegador activa — detectando manos';
     estadoCamara.className = 'ok';
   } catch (e) {
+    camaraNavegadorActiva = false;
     estadoCamara.textContent = 'Sin permiso de cámara en el navegador...';
     estadoCamara.className = 'error';
   }
