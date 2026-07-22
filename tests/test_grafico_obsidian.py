@@ -4,7 +4,7 @@ Obsidian ya sabe (nodos = notas, aristas = wikilinks [[...]])."""
 from unittest.mock import MagicMock, patch
 
 import skills.grafico_obsidian as modulo
-from skills.grafico_obsidian import abrir_camara_nativa, construir_grafo
+from skills.grafico_obsidian import abrir_camara_nativa, construir_grafo, leer_nota
 
 
 def _con_archivos_falsos(mapa_archivos):
@@ -71,6 +71,20 @@ def test_no_hay_auto_enlaces_ni_duplicados():
     with p1, p2:
         g = construir_grafo()
     assert g["edges"] == [{"origen": "a", "destino": "b"}]
+
+
+def test_leer_nota_devuelve_el_contenido_del_archivo():
+    archivos = {"/vault/a.md": "Contenido real de la nota A."}
+    p1, p2 = _con_archivos_falsos(archivos)
+    with p1, p2:
+        assert leer_nota("a") == "Contenido real de la nota A."
+
+
+def test_leer_nota_devuelve_none_si_no_existe():
+    archivos = {"/vault/a.md": "Contenido."}
+    p1, p2 = _con_archivos_falsos(archivos)
+    with p1, p2:
+        assert leer_nota("nota fantasma") is None
 
 
 def test_abrir_camara_nativa_lanza_el_proceso(monkeypatch):

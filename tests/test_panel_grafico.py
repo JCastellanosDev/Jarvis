@@ -35,6 +35,13 @@ def test_pagina_del_grafo_carga():
     assert b"Hands" in resultado.data
 
 
+def test_pagina_incluye_panel_de_nota_y_zoom_y_dictado():
+    resultado = _cliente().get("/grafico-obsidian")
+    assert b"panel-nota" in resultado.data
+    assert b"boton-agregar-nota" in resultado.data
+    assert b"addEventListener('wheel'" in resultado.data
+
+
 def test_datos_del_grafo_son_json_valido():
     grafo_falso = {"nodes": [{"id": "a", "existe": True}], "edges": []}
     with patch("panel.grafico.construir_grafo", return_value=grafo_falso):
@@ -74,3 +81,35 @@ def test_gesto_vencido_se_reporta_inactivo():
     datos = resultado.get_json()
     assert datos["manos"] == []
     assert datos["activa"] is False
+
+
+def test_ver_nota_existente():
+    with patch("panel.grafico.leer_nota", return_value="Contenido de la nota."):
+        resultado = _cliente().get("/grafico-obsidian/nota?id=Mi%20nota")
+    datos = resultado.get_json()
+    assert datos["existe"] is True
+    assert datos["contenido"] == "Contenido de la nota."
+
+
+def test_ver_nota_inexistente():
+    with patch("panel.grafico.leer_nota", return_value=None):
+        resultado = _cliente().get("/grafico-obsidian/nota?id=fantasma")
+    datos = resultado.get_json()
+    assert datos["existe"] is False
+    assert datos["contenido"] is None
+
+
+def test_crear_nota_llama_a_agregar_nota():
+    with patch("panel.grafico.agregar_nota", return_value="Nota agregada a tu bóveda de Obsidian.") as mock_agregar:
+        resultado = _cliente().post("/grafico-obsidian/nota", json={"texto": "Comprar leche"})
+    assert resultado.status_code == 200
+    datos = resultado.get_json()
+    assert datos["ok"] is True
+    assert "agregada" in datos["mensaje"].lower()
+    mock_agregar.assert_called_once_with("Comprar leche")
+
+
+def test_crear_nota_sin_texto_da_error():
+    resultado = _cliente().post("/grafico-obsidian/nota", json={"texto": "   "})
+    assert resultado.status_code == 400
+    assert resultado.get_json()["ok"] is False

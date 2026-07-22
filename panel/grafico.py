@@ -20,7 +20,8 @@ import time
 
 from flask import Blueprint, jsonify, request
 
-from skills.grafico_obsidian import construir_grafo
+from skills.grafico_obsidian import construir_grafo, leer_nota
+from skills.obsidian import agregar_nota
 
 _VENCIMIENTO_GESTO_SEGUNDOS = 1.0
 _bloqueo_gesto = threading.Lock()
@@ -65,6 +66,41 @@ PAGINA_GRAFICO = """<!doctype html>
   }
   #estado-camara.ok { color: var(--accent); }
   #estado-camara.error { color: var(--alerta); }
+
+  #panel-nota {
+    position: absolute; top: 0.8rem; right: 0.8rem; bottom: 0.8rem; z-index: 6;
+    width: min(360px, 40vw); display: none; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 10px;
+    padding: 0.9rem; overflow: hidden;
+  }
+  #panel-nota.abierto { display: flex; }
+  #panel-nota .fila-titulo { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+  #panel-nota h2 { margin: 0; font-size: 0.85rem; color: var(--accent); word-break: break-word; }
+  #panel-nota .cerrar {
+    background: transparent; border: 1px solid var(--borde); border-radius: 6px;
+    color: var(--texto-dim); cursor: pointer; font-family: inherit; font-size: 0.8rem;
+    padding: 0.1rem 0.5rem; flex-shrink: 0;
+  }
+  #panel-nota .cerrar:hover { color: var(--texto); border-color: var(--texto-dim); }
+  #panel-nota-contenido {
+    margin-top: 0.6rem; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+    font-size: 0.76rem; line-height: 1.5; color: var(--texto);
+  }
+  #panel-nota-contenido.vacia { color: var(--texto-dim); font-style: italic; }
+
+  #boton-agregar-nota {
+    position: absolute; bottom: 0.8rem; left: 0.8rem; z-index: 5;
+    display: flex; align-items: center; gap: 0.4rem;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+    color: var(--texto); font-family: inherit; font-size: 0.75rem;
+    padding: 0.55rem 0.9rem; cursor: pointer;
+  }
+  #boton-agregar-nota:hover { border-color: var(--accent); color: var(--accent); }
+  #boton-agregar-nota.escuchando { border-color: var(--user); color: var(--user); }
+  #aviso-nota {
+    position: absolute; bottom: 3.2rem; left: 0.8rem; z-index: 5;
+    font-size: 0.68rem; color: var(--texto-dim); max-width: 260px; display: none;
+  }
 </style>
 </head>
 <body>
@@ -76,6 +112,7 @@ PAGINA_GRAFICO = """<!doctype html>
   <p><b id="conteo-nodos">—</b> notas &middot; <b id="conteo-aristas">—</b> conexiones</p>
   <p>Pellizca (pulgar + índice) cerca de un nodo para arrastrarlo.</p>
   <p>Pellizca con las dos manos en el aire para hacer zoom.</p>
+  <p>Rueda del mouse o clic en un nodo: zoom / ver contenido.</p>
   <p>Sin cámara en el navegador: corre <b>panel/camara_nativa.py</b> aparte,
     o arrastra con el mouse.</p>
 </div>
@@ -85,6 +122,19 @@ PAGINA_GRAFICO = """<!doctype html>
   <canvas id="overlay-camara" width="200" height="150"></canvas>
   <div id="estado-camara">Pidiendo permiso de cámara...</div>
 </div>
+
+<div id="panel-nota">
+  <div class="fila-titulo">
+    <h2 id="panel-nota-titulo">—</h2>
+    <button class="cerrar" id="cerrar-panel-nota">cerrar ✕</button>
+  </div>
+  <div id="panel-nota-contenido"></div>
+</div>
+
+<button id="boton-agregar-nota" title="Dicta una nota nueva para tu bóveda de Obsidian">
+  <span>&#127908;</span>Agregar nota por voz
+</button>
+<div id="aviso-nota"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -115,27 +165,44 @@ let panX = 0, panY = 0;
 // para siempre aunque los datos sí llegaran bien.
 let manosActuales = [];
 
-fetch('/grafico-obsidian/datos.json').then((r) => r.json()).then((datos) => {
-  document.getElementById('conteo-nodos').textContent = datos.nodes.length;
-  document.getElementById('conteo-aristas').textContent = datos.edges.length;
+let primeraCarga = true;
 
-  nodos = datos.nodes.map((n) => ({
-    id: n.id, existe: n.existe,
-    x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400,
-    vx: 0, vy: 0, fx: 0, fy: 0, sujetoPor: null,
-  }));
-  mapaNodos = {};
-  nodos.forEach((n) => { mapaNodos[n.id] = n; });
+function cargarGrafo() {
+  return fetch('/grafico-obsidian/datos.json').then((r) => r.json()).then((datos) => {
+    document.getElementById('conteo-nodos').textContent = datos.nodes.length;
+    document.getElementById('conteo-aristas').textContent = datos.edges.length;
 
-  aristas = datos.edges.filter((a) => mapaNodos[a.origen] && mapaNodos[a.destino]);
-  aristas.forEach((a) => {
-    gradoPorNodo[a.origen] = (gradoPorNodo[a.origen] || 0) + 1;
-    gradoPorNodo[a.destino] = (gradoPorNodo[a.destino] || 0) + 1;
+    // Conserva la posición de los nodos que ya existían (si esto es un
+    // refresco tras agregar una nota, no queremos que el grafo entero
+    // vuelva a saltar a posiciones aleatorias).
+    const posicionesPrevias = mapaNodos;
+    nodos = datos.nodes.map((n) => {
+      const previo = posicionesPrevias[n.id];
+      return {
+        id: n.id, existe: n.existe,
+        x: previo ? previo.x : (Math.random() - 0.5) * 400,
+        y: previo ? previo.y : (Math.random() - 0.5) * 400,
+        vx: 0, vy: 0, fx: 0, fy: 0, sujetoPor: null,
+      };
+    });
+    mapaNodos = {};
+    nodos.forEach((n) => { mapaNodos[n.id] = n; });
+
+    aristas = datos.edges.filter((a) => mapaNodos[a.origen] && mapaNodos[a.destino]);
+    gradoPorNodo = {};
+    aristas.forEach((a) => {
+      gradoPorNodo[a.origen] = (gradoPorNodo[a.origen] || 0) + 1;
+      gradoPorNodo[a.destino] = (gradoPorNodo[a.destino] || 0) + 1;
+    });
+
+    if (primeraCarga) {
+      panX = canvas.width / 2;
+      panY = canvas.height / 2;
+      primeraCarga = false;
+    }
   });
-
-  panX = canvas.width / 2;
-  panY = canvas.height / 2;
-});
+}
+cargarGrafo();
 
 // --- Físicas: repulsión entre todos los nodos + resortes en cada arista ---
 const REPULSION = 2200;
@@ -277,6 +344,59 @@ canvas.addEventListener('mousemove', (ev) => { manoMouse.x = ev.clientX; manoMou
 canvas.addEventListener('mousedown', () => { manoMouse.pinzando = true; });
 window.addEventListener('mouseup', () => { manoMouse.pinzando = false; });
 
+// --- Zoom con la rueda del mouse (además del pellizco a dos manos) ---
+canvas.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  const factor = ev.deltaY < 0 ? 1.1 : 1 / 1.1;
+  zoom = Math.max(0.3, Math.min(3, zoom * factor));
+}, { passive: false });
+
+// --- Clic en un nodo: ver qué tiene adentro ---
+const panelNota = document.getElementById('panel-nota');
+const panelNotaTitulo = document.getElementById('panel-nota-titulo');
+const panelNotaContenido = document.getElementById('panel-nota-contenido');
+let posicionMouseAbajo = null;
+
+canvas.addEventListener('mousedown', (ev) => { posicionMouseAbajo = { x: ev.clientX, y: ev.clientY }; });
+canvas.addEventListener('mouseup', (ev) => {
+  if (!posicionMouseAbajo) return;
+  const distanciaArrastrada = Math.hypot(ev.clientX - posicionMouseAbajo.x, ev.clientY - posicionMouseAbajo.y);
+  posicionMouseAbajo = null;
+  if (distanciaArrastrada > 6) return;  // fue un arrastre, no un clic
+
+  const mundo = aScreenAWorld(ev.clientX, ev.clientY);
+  let mejor = null, mejorDist = 20 / zoom;
+  for (const n of nodos) {
+    const d = Math.hypot(n.x - mundo.x, n.y - mundo.y);
+    if (d < mejorDist) { mejor = n; mejorDist = d; }
+  }
+  if (mejor) mostrarNota(mejor.id);
+});
+
+function mostrarNota(id) {
+  panelNotaTitulo.textContent = id;
+  panelNotaContenido.textContent = 'Cargando...';
+  panelNotaContenido.classList.remove('vacia');
+  panelNota.classList.add('abierto');
+
+  fetch('/grafico-obsidian/nota?id=' + encodeURIComponent(id)).then((r) => r.json()).then((datos) => {
+    if (!datos.existe) {
+      panelNotaContenido.textContent = 'Esta nota todavía no existe — es solo una referencia desde otra nota.';
+      panelNotaContenido.classList.add('vacia');
+    } else {
+      panelNotaContenido.textContent = datos.contenido || '(nota vacía)';
+      panelNotaContenido.classList.toggle('vacia', !datos.contenido);
+    }
+  }).catch(() => {
+    panelNotaContenido.textContent = 'No pude cargar el contenido.';
+    panelNotaContenido.classList.add('vacia');
+  });
+}
+
+document.getElementById('cerrar-panel-nota').addEventListener('click', () => {
+  panelNota.classList.remove('abierto');
+});
+
 // --- Gestos de la app nativa (panel/camara_nativa.py), si está corriendo ---
 // Cuando Brave no tiene permiso de cámara, esta es la fuente real de manos:
 // la app nativa abre la cámara ella misma (fuera del navegador) y manda lo
@@ -371,6 +491,58 @@ setInterval(() => {
     estadoCamara.textContent = 'Sin cámara (corre panel/camara_nativa.py o usa el mouse)';
   }
 }, 500);
+
+// --- Agregar nota por voz (dictado con la Web Speech API del navegador) ---
+const botonAgregarNota = document.getElementById('boton-agregar-nota');
+const avisoNota = document.getElementById('aviso-nota');
+
+function mostrarAvisoNota(texto, duracionMs) {
+  avisoNota.textContent = texto;
+  avisoNota.style.display = 'block';
+  clearTimeout(avisoNota._temporizador);
+  avisoNota._temporizador = setTimeout(() => { avisoNota.style.display = 'none'; }, duracionMs || 4000);
+}
+
+function guardarNotaDictada(texto) {
+  mostrarAvisoNota('Guardando: "' + texto + '"...', 6000);
+  fetch('/grafico-obsidian/nota', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto }),
+  }).then((r) => r.json()).then((datos) => {
+    mostrarAvisoNota(datos.mensaje || (datos.ok ? 'Nota guardada.' : 'No pude guardar la nota.'));
+    if (datos.ok) cargarGrafo();
+  }).catch(() => mostrarAvisoNota('Error de conexión al guardar la nota.'));
+}
+
+const MotorVozNota = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (MotorVozNota) {
+  const reconocedorNota = new MotorVozNota();
+  reconocedorNota.lang = 'es-ES';
+  reconocedorNota.interimResults = false;
+  reconocedorNota.maxAlternatives = 1;
+  let escuchandoNota = false;
+
+  reconocedorNota.onstart = () => {
+    escuchandoNota = true;
+    botonAgregarNota.classList.add('escuchando');
+    mostrarAvisoNota('Escuchando... dicta tu nota.', 8000);
+  };
+  reconocedorNota.onend = () => {
+    escuchandoNota = false;
+    botonAgregarNota.classList.remove('escuchando');
+  };
+  reconocedorNota.onresult = (ev) => guardarNotaDictada(ev.results[0][0].transcript);
+  reconocedorNota.onerror = (ev) => mostrarAvisoNota('No pude escucharte (' + ev.error + ').');
+
+  botonAgregarNota.addEventListener('click', () => {
+    if (escuchandoNota) { reconocedorNota.stop(); return; }
+    try { reconocedorNota.start(); } catch (e) { /* ya estaba iniciando */ }
+  });
+} else {
+  botonAgregarNota.disabled = true;
+  botonAgregarNota.title = 'Tu navegador no soporta dictado por voz';
+}
 </script>
 </body>
 </html>
@@ -409,5 +581,28 @@ def crear_blueprint_grafico():
             manos = [] if vencido else _ultimo_gesto["manos"]
             activa = not vencido and _ultimo_gesto["recibido_en"] > 0
         return jsonify(manos=manos, activa=activa)
+
+    @grafico.route("/grafico-obsidian/nota", methods=["GET"])
+    def ver_nota():
+        """Contenido de la nota que se clickeó en el grafo. `id` va en la
+        query string (no en la ruta) porque los nombres de nota traen
+        espacios y acentos que no vale la pena pelearse con encodear en un
+        path segment."""
+        nombre = request.args.get("id", "")
+        contenido = leer_nota(nombre)
+        if contenido is None:
+            return jsonify(existe=False, contenido=None)
+        return jsonify(existe=True, contenido=contenido)
+
+    @grafico.route("/grafico-obsidian/nota", methods=["POST"])
+    def crear_nota():
+        """Agrega una nota dictada desde la propia vista del grafo (mismo
+        comportamiento que decirle "agrega una nota..." por voz)."""
+        cuerpo = request.get_json(silent=True) or {}
+        texto = (cuerpo.get("texto") or "").strip()
+        if not texto:
+            return jsonify(ok=False, mensaje="No hay nada que guardar."), 400
+        mensaje = agregar_nota(texto)
+        return jsonify(ok=True, mensaje=mensaje)
 
     return grafico

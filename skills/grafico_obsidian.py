@@ -64,6 +64,21 @@ def construir_grafo():
     return {"nodes": nodos, "edges": aristas}
 
 
+def leer_nota(nombre):
+    """Devuelve el contenido crudo (markdown) de la nota `nombre` (sin
+    extensión), o None si no existe ningún archivo con ese id en ninguna
+    bóveda — pasa con los nodos "fantasma" (referenciados pero nunca
+    creados) que construir_grafo() también incluye en el grafo."""
+    for ruta in _listar_archivos_md():
+        if os.path.splitext(os.path.basename(ruta))[0] == nombre:
+            try:
+                with open(ruta, "r", encoding="utf-8", errors="ignore") as f:
+                    return f.read()
+            except OSError:
+                return None
+    return None
+
+
 _RUTA_LOG_CAMARA_NATIVA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "camara_nativa.log")
 
 
