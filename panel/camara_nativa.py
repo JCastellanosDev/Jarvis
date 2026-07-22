@@ -18,7 +18,6 @@ vez desde el CDN oficial de Google, igual que hicimos con Kokoro."""
 import os
 import sys
 import time
-import urllib.request
 
 import cv2
 import mediapipe as mp
@@ -38,12 +37,19 @@ URL_MODELO = (
 
 
 def _asegurar_modelo():
+    """Usa `requests` (no `urllib`) a propósito: los builds de Python de
+    python.org en macOS no traen certificados SSL propios y `urllib` falla
+    con CERTIFICATE_VERIFY_FAILED, mientras que `requests` sí trae los
+    suyos vía `certifi` (ya es dependencia del proyecto)."""
     ruta = os.path.abspath(RUTA_MODELO)
     if os.path.exists(ruta) and os.path.getsize(ruta) > 0:
         return ruta
     print(f"[Jarvis] Descargando el modelo de detección de manos a {ruta}...")
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
-    urllib.request.urlretrieve(URL_MODELO, ruta)
+    respuesta = requests.get(URL_MODELO, timeout=30)
+    respuesta.raise_for_status()
+    with open(ruta, "wb") as f:
+        f.write(respuesta.content)
     print("[Jarvis] Modelo descargado.")
     return ruta
 
