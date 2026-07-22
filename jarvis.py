@@ -81,9 +81,13 @@ def construir_enrutador():
         MultimediaIntent(),
         VideoIntent(),
         AccionesSkillsIntent(),
+        # GraficoObsidianIntent va ANTES que AplicacionesIntent a propósito:
+        # el patrón genérico "abre <app>" de AplicacionesIntent matchea
+        # cualquier "abre ..." (incluido "abre el grafo de mis notas") y
+        # trataba de abrir una app inexistente con ese nombre.
+        GraficoObsidianIntent(),
         AplicacionesIntent(),
         GithubSyncIntent(),
-        GraficoObsidianIntent(),
         ObsidianIntent(),
         BuscarCodigoIntent(),
         BusquedaWebIntent(),

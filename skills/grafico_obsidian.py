@@ -64,17 +64,29 @@ def construir_grafo():
     return {"nodes": nodos, "edges": aristas}
 
 
+_RUTA_LOG_CAMARA_NATIVA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "camara_nativa.log")
+
+
 def abrir_camara_nativa(puerto):
     """Lanza panel/camara_nativa.py en su propia ventana, aparte de Brave —
     para cuando el navegador no tiene permiso de cámara. Idempotente: si ya
     hay una instancia corriendo, no abre una segunda.
+
+    Como corre en segundo plano (Jarvis no espera a que termine), su
+    stdout/stderr se manda a camara_nativa.log en la raíz del proyecto —
+    si la ventana de la cámara no aparece, ahí queda el motivo (falta el
+    permiso, no hay cámara disponible, un import roto, etc.) en vez de
+    perderse en la nada.
 
     Devuelve True si la dejó corriendo (ya sea recién lanzada o de antes)."""
     global _proceso_camara_nativa
     if _proceso_camara_nativa is not None and _proceso_camara_nativa.poll() is None:
         return True
     try:
-        _proceso_camara_nativa = subprocess.Popen([sys.executable, _RUTA_CAMARA_NATIVA, str(puerto)])
+        log = open(_RUTA_LOG_CAMARA_NATIVA, "w")
+        _proceso_camara_nativa = subprocess.Popen(
+            [sys.executable, _RUTA_CAMARA_NATIVA, str(puerto)], stdout=log, stderr=subprocess.STDOUT
+        )
         return True
     except OSError:
         return False

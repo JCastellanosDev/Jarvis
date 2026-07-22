@@ -76,7 +76,8 @@ def test_no_hay_auto_enlaces_ni_duplicados():
 def test_abrir_camara_nativa_lanza_el_proceso(monkeypatch):
     monkeypatch.setattr(modulo, "_proceso_camara_nativa", None)
     proceso_falso = MagicMock()
-    with patch("skills.grafico_obsidian.subprocess.Popen", return_value=proceso_falso) as mock_popen:
+    with patch("skills.grafico_obsidian.subprocess.Popen", return_value=proceso_falso) as mock_popen, \
+         patch("builtins.open", MagicMock()):
         assert abrir_camara_nativa(5005) is True
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
@@ -94,5 +95,6 @@ def test_abrir_camara_nativa_no_duplica_si_ya_esta_corriendo(monkeypatch):
 
 def test_abrir_camara_nativa_devuelve_false_si_falla(monkeypatch):
     monkeypatch.setattr(modulo, "_proceso_camara_nativa", None)
-    with patch("skills.grafico_obsidian.subprocess.Popen", side_effect=OSError("no encontrado")):
+    with patch("skills.grafico_obsidian.subprocess.Popen", side_effect=OSError("no encontrado")), \
+         patch("builtins.open", MagicMock()):
         assert abrir_camara_nativa(5005) is False

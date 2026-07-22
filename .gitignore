@@ -12,6 +12,7 @@ prueba.wav
 
 # Logs
 logs/
+camara_nativa.log
 
 # Modelos y binarios de TTS/visión local (grandes, se descargan aparte)
 piper/
