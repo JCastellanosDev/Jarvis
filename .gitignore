@@ -1,0 +1,30 @@
+# Entorno / secretos
+.env
+
+# Memoria persistente y datos personales del usuario
+memoria_jarvis.json
+habitos.json
+patrones_jarvis.json
+
+# Audio temporal / pruebas
+respuesta_jarvis.mp3
+prueba.wav
+
+# Logs
+logs/
+
+# Modelos y binarios de TTS local (grandes, se descargan aparte)
+piper/
+voces/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# IDE / herramientas locales
+.idea/
+.claude/
+.DS_Store
