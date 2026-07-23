@@ -247,15 +247,13 @@ function pasoFisica() {
 }
 
 // --- Dibujo ---
-function dibujar() {
-  pasoFisica();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Tu propia cámara de fondo (si el navegador tiene permiso): los nodos
-  // quedan dibujados encima, estilo realidad aumentada, en vez de en una
-  // cajita aparte. Espejada para que coincida con el espacio "selfie" en
-  // el que ya se calculan las posiciones de las manos.
-  if (camaraNavegadorActiva && video.readyState >= 2) {
+// Tu propia cámara de fondo (si el navegador tiene permiso): los nodos
+// quedan dibujados encima, estilo realidad aumentada, en vez de en una
+// cajita aparte. Espejada para que coincida con el espacio "selfie" en el
+// que ya se calculan las posiciones de las manos.
+function dibujarFondoCamara() {
+  if (!camaraNavegadorActiva || video.readyState < 2 || !video.videoWidth) return;
+  try {
     ctx.save();
     ctx.scale(-1, 1);
     ctx.translate(-canvas.width, 0);
@@ -263,43 +261,65 @@ function dibujar() {
     ctx.restore();
     ctx.fillStyle = 'rgba(3, 5, 7, 0.5)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } catch (e) {
+    // Si drawImage falla por lo que sea (algunos navegadores no dejan
+    // dibujar un <video> con display:none, por ejemplo), no te quedes sin
+    // grafo por eso: apaga el fondo de cámara y sigue dibujando lo demás.
+    camaraNavegadorActiva = false;
+    console.error('[Jarvis] No pude dibujar el video de fondo, lo desactivo:', e);
   }
+}
 
-  ctx.save();
-  ctx.translate(panX, panY);
-  ctx.scale(zoom, zoom);
+function dibujar() {
+  // Blindado a propósito: un error en CUALQUIER parte de un cuadro (la
+  // cámara de fondo, un dato raro, lo que sea) ya nos dejó el canvas en
+  // blanco para siempre una vez (ver el commit que arregló el
+  // ReferenceError de manosActuales) porque mataba este loop entero antes
+  // de llegar al requestAnimationFrame de más abajo. Ahora, pase lo que
+  // pase, el loop sigue vivo y los nodos se siguen intentando dibujar.
+  try {
+    pasoFisica();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    dibujarFondoCamara();
 
-  ctx.strokeStyle = 'rgba(0,229,195,0.22)';
-  ctx.lineWidth = 1 / zoom;
-  for (const arista of aristas) {
-    const a = mapaNodos[arista.origen], b = mapaNodos[arista.destino];
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-  }
+    ctx.save();
+    ctx.translate(panX, panY);
+    ctx.scale(zoom, zoom);
 
-  for (const n of nodos) {
-    const grado = gradoPorNodo[n.id] || 1;
-    const radio = Math.min(14, 3 + grado * 1.3);
-    ctx.beginPath();
-    ctx.arc(n.x, n.y, radio, 0, Math.PI * 2);
-    ctx.fillStyle = n.sujetoPor !== null ? '#ffb454' : (n.existe ? '#00e5c3' : '#555f6b');
-    ctx.fill();
-    if (grado >= 2 || zoom > 1.2) {
-      ctx.fillStyle = '#d7e2ea';
-      ctx.font = (11 / zoom) + 'px monospace';
-      ctx.fillText(n.id, n.x + radio + 3, n.y + 4);
+    ctx.strokeStyle = 'rgba(0,229,195,0.22)';
+    ctx.lineWidth = 1 / zoom;
+    for (const arista of aristas) {
+      const a = mapaNodos[arista.origen], b = mapaNodos[arista.destino];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
     }
-  }
-  ctx.restore();
 
-  for (const mano of manosActuales) {
-    ctx.beginPath();
-    ctx.arc(mano.x, mano.y, mano.pinzando ? 11 : 7, 0, Math.PI * 2);
-    ctx.strokeStyle = mano.pinzando ? '#ffb454' : '#7aa2ff';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+    for (const n of nodos) {
+      const grado = gradoPorNodo[n.id] || 1;
+      const radio = Math.min(14, 3 + grado * 1.3);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, radio, 0, Math.PI * 2);
+      ctx.fillStyle = n.sujetoPor !== null ? '#ffb454' : (n.existe ? '#00e5c3' : '#555f6b');
+      ctx.fill();
+      if (grado >= 2 || zoom > 1.2) {
+        ctx.fillStyle = '#d7e2ea';
+        ctx.font = (11 / zoom) + 'px monospace';
+        ctx.fillText(n.id, n.x + radio + 3, n.y + 4);
+      }
+    }
+    ctx.restore();
+
+    for (const mano of manosActuales) {
+      ctx.beginPath();
+      ctx.arc(mano.x, mano.y, mano.pinzando ? 11 : 7, 0, Math.PI * 2);
+      ctx.strokeStyle = mano.pinzando ? '#ffb454' : '#7aa2ff';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+  } catch (e) {
+    console.error('[Jarvis] Error dibujando un cuadro del grafo (sigo intentando el siguiente):', e);
   }
 
   requestAnimationFrame(dibujar);
