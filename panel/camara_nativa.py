@@ -15,6 +15,7 @@ Nota: el paquete `mediapipe` para macOS/arm64 ya no trae la API vieja
 necesita un archivo de modelo aparte (~8MB). Se descarga solo la primera
 vez desde el CDN oficial de Google, igual que hicimos con Kokoro."""
 
+import math
 import os
 import sys
 import time
@@ -65,18 +66,26 @@ def _extraer_manos(resultado):
     for puntos in resultado.hand_landmarks:
         pulgar = puntos[4]
         indice = puntos[8]
-        # Espejo horizontal (cámara "selfie"): igual que el lado del navegador.
-        x = 1 - indice.x
+        # El cuadro ya se espejó con cv2.flip() antes de correr la detección
+        # (ver ejecutar()), así que estos landmarks YA están en espacio
+        # "selfie" — no hay que espejarlos de nuevo aquí (antes sí se hacía
+        # dos veces sin querer, y el arrastre quedaba invertido izq/der
+        # comparado con la cámara del navegador, que no espeja el cuadro
+        # antes de detectar y sí necesita el 1 - x).
+        x = indice.x
         y = indice.y
-        distancia = ((pulgar.x - indice.x) ** 2 + (pulgar.y - indice.y) ** 2) ** 0.5
-        # Tamaño de la mano en el cuadro (muñeca a base del dedo medio): más
-        # grande cuanto más cerca de la cámara la tengas — el navegador lo
-        # usa como control de zoom con una sola mano (sin pellizcar).
+        distancia_pinza = ((pulgar.x - indice.x) ** 2 + (pulgar.y - indice.y) ** 2) ** 0.5
+        # Separación pulgar-índice (normalizada): el navegador la usa para
+        # controlar el zoom sin pellizcar (más separados los dedos = más
+        # zoom), en vez de tener que acercar la mano a la cámara.
         muneca = puntos[0]
         base_medio = puntos[9]
-        tamano = ((base_medio.x - muneca.x) ** 2 + (base_medio.y - muneca.y) ** 2) ** 0.5
+        # Ángulo de la mano (muñeca -> base del dedo medio): al girar la
+        # muñeca, el navegador rota el grafo con este valor.
+        angulo = math.atan2(base_medio.y - muneca.y, base_medio.x - muneca.x)
         manos.append({
-            "x": x, "y": y, "pinzando": distancia < UMBRAL_PINZA_NORMALIZADO, "tamano": tamano,
+            "x": x, "y": y, "pinzando": distancia_pinza < UMBRAL_PINZA_NORMALIZADO,
+            "distanciaDedos": distancia_pinza, "angulo": angulo,
         })
     return manos
 

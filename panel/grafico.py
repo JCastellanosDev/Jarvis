@@ -106,15 +106,15 @@ PAGINA_GRAFICO = """<!doctype html>
 <div id="encabezado">
   <h1>GRAFO DE OBSIDIAN</h1>
   <p><b id="conteo-nodos">—</b> notas &middot; <b id="conteo-aristas">—</b> conexiones</p>
-  <p>Pellizca cerca de un nodo y suelta rápido: ver su contenido.</p>
+  <p>Doble pellizco rápido cerca de un nodo: ver su contenido.</p>
   <p>Pellizca cerca de un nodo y arrastra: moverlo.</p>
   <p>Pellizca en el aire y arrastra: mover la vista.</p>
-  <p>Mano abierta, sin pellizcar: acércala o aléjala de la cámara para
-    hacer zoom (o usa la rueda del mouse).</p>
+  <p>Mano abierta: separa o junta pulgar e índice para hacer zoom, gira la
+    muñeca para rotar el grafo.</p>
   <p>Si el navegador tiene permiso de cámara, los nodos aparecen encima de
     tu propia imagen (realidad aumentada).</p>
   <p>Sin cámara en el navegador: corre <b>panel/camara_nativa.py</b> aparte,
-    o usa el mouse (mismos gestos: clic, arrastrar, rueda).</p>
+    o usa el mouse (doble clic, arrastrar, rueda).</p>
 </div>
 
 <video id="video" autoplay playsinline></video>
@@ -153,6 +153,7 @@ let gradoPorNodo = {};
 
 let zoom = 1;
 let panX = 0, panY = 0;
+let rotacionGrafo = 0;  // radianes; gira al girar la mano (ver actualizarInteraccion)
 
 // Declarados aquí (no más abajo, junto al resto de cámara/interacción) a
 // propósito: dibujar() los usa y se llama de forma síncrona más abajo,
@@ -284,6 +285,7 @@ function dibujar() {
 
     ctx.save();
     ctx.translate(panX, panY);
+    ctx.rotate(rotacionGrafo);
     ctx.scale(zoom, zoom);
 
     ctx.strokeStyle = 'rgba(0,229,195,0.22)';
@@ -328,35 +330,60 @@ dibujar();
 
 // --- Interacción: TODO con una sola mano (compartido por gesto y mouse) ---
 // Vocabulario de gestos:
-//   · Pellizca (pulgar+índice) cerca de un nodo y suelta rápido, sin apenas
-//     mover la mano  -> abre esa nota (equivalente a un clic).
-//   · Pellizca cerca de un nodo y ARRASTRA                      -> lo mueve.
-//   · Pellizca en el aire (lejos de cualquier nodo) y arrastra  -> mueve la
+//   · Pellizca cerca de un nodo, suelta rápido, y vuelve a pellizcar rápido
+//     otra vez sobre el MISMO nodo (doble pellizco, como doble clic)
+//                                                        -> abre esa nota.
+//   · Pellizca cerca de un nodo y ARRASTRA                -> lo mueve.
+//   · Pellizca en el aire (lejos de cualquier nodo) y arrastra -> mueve la
 //     vista completa (paneo), como si agarraras el lienzo.
-//   · Mano ABIERTA (sin pellizcar) y la acercas o alejas de la cámara
-//     -> zoom in/out, usando el tamaño aparente de la mano en el cuadro
-//     como distancia (más grande = más cerca = zoom in). No hace falta la
-//     segunda mano para nada.
+//   · Mano ABIERTA (sin pellizcar): la separación entre tu pulgar y tu
+//     índice controla el zoom directamente (dedos juntos = alejado, dedos
+//     bien separados = acercado) — sin mover la mano hacia la cámara.
+//   · Mano ABIERTA (sin pellizcar) y GIRAS la muñeca -> rota el grafo,
+//     el mismo ángulo que gira tu mano.
 const sujetadoPorIndice = [null, null];
 const paneandoDesdePorIndice = [null, null];
 const pellizcoInicioPorIndice = [null, null];
-const tamanoAnteriorPorIndice = [null, null];
+const ultimoToquePorIndice = [null, null];
+const anguloAnteriorPorIndice = [null, null];
 const UMBRAL_TOQUE_PX = 15;
 const UMBRAL_TOQUE_MS = 450;
+const VENTANA_DOBLE_PELLIZCO_MS = 500;
+const DISTANCIA_DEDOS_ZOOM_MIN = 0.08;  // dedos casi juntos (recién fuera del umbral de pellizco)
+const DISTANCIA_DEDOS_ZOOM_MAX = 0.35;  // dedos bien separados
+const ZOOM_MIN = 0.3, ZOOM_MAX = 3;
+
+function mapearRango(valor, inMin, inMax, outMin, outMax) {
+  const t = Math.max(0, Math.min(1, (valor - inMin) / (inMax - inMin)));
+  return outMin + t * (outMax - outMin);
+}
 
 function aScreenAWorld(x, y) {
-  return { x: (x - panX) / zoom, y: (y - panY) / zoom };
+  const dx = x - panX, dy = y - panY;
+  const cos = Math.cos(-rotacionGrafo), sen = Math.sin(-rotacionGrafo);
+  return { x: (dx * cos - dy * sen) / zoom, y: (dx * sen + dy * cos) / zoom };
+}
+
+function normalizarAngulo(radianes) {
+  // Lleva la diferencia de ángulo al rango [-PI, PI] — sin esto, girar la
+  // mano cruzando la marca de "180°" haría que el grafo pegara un salto en
+  // vez de girar suave (el ángulo crudo salta de +PI a -PI de golpe ahí).
+  while (radianes > Math.PI) radianes -= 2 * Math.PI;
+  while (radianes < -Math.PI) radianes += 2 * Math.PI;
+  return radianes;
 }
 
 function actualizarInteraccion(entradas) {
-  // entradas: [{x, y, pinzando, tamano?}, ...] en espacio de PANTALLA.
+  // entradas: [{x, y, pinzando, distanciaDedos?, angulo?}, ...] en espacio
+  // de PANTALLA (x, y) salvo distanciaDedos/angulo, que van en espacio
+  // normalizado (0..1 / radianes) tal cual los manda MediaPipe.
   const ahora = performance.now();
 
   entradas.forEach((entrada, idx) => {
     const mundo = aScreenAWorld(entrada.x, entrada.y);
 
     if (entrada.pinzando) {
-      tamanoAnteriorPorIndice[idx] = null;  // pellizcando no cuenta para el zoom
+      anguloAnteriorPorIndice[idx] = null;  // pellizcando no cuenta para zoom ni rotación
 
       if (sujetadoPorIndice[idx] === null && paneandoDesdePorIndice[idx] === null) {
         let mejor = null, mejorDist = 34 / zoom;
@@ -390,25 +417,45 @@ function actualizarInteraccion(entradas) {
     const inicio = pellizcoInicioPorIndice[idx];
     if (inicio && inicio.nodoId) {
       const distanciaMovida = Math.hypot(entrada.x - inicio.x, entrada.y - inicio.y);
-      if (distanciaMovida < UMBRAL_TOQUE_PX && (ahora - inicio.t) < UMBRAL_TOQUE_MS) {
-        mostrarNota(inicio.nodoId);  // fue un toque, no un arrastre: abre la nota
+      const fueToque = distanciaMovida < UMBRAL_TOQUE_PX && (ahora - inicio.t) < UMBRAL_TOQUE_MS;
+      if (fueToque) {
+        const anterior = ultimoToquePorIndice[idx];
+        const fueDoblePellizco = anterior && anterior.nodoId === inicio.nodoId
+          && (ahora - anterior.t) < VENTANA_DOBLE_PELLIZCO_MS;
+        if (fueDoblePellizco) {
+          mostrarNota(inicio.nodoId);
+          ultimoToquePorIndice[idx] = null;  // no cuenta un 3er pellizco como otro doble
+        } else {
+          ultimoToquePorIndice[idx] = { nodoId: inicio.nodoId, t: ahora };
+        }
       }
     }
     sujetadoPorIndice[idx] = null;
     paneandoDesdePorIndice[idx] = null;
     pellizcoInicioPorIndice[idx] = null;
 
-    // Zoom con una sola mano abierta: compara el tamaño de la mano en este
-    // cuadro contra el del cuadro anterior. Solo con UNA mano visible, para
-    // no pelearse con la otra si algún día hay dos en pantalla.
-    if (entradas.length === 1 && entrada.tamano) {
-      if (tamanoAnteriorPorIndice[idx] !== null) {
-        const factor = entrada.tamano / tamanoAnteriorPorIndice[idx];
-        zoom = Math.max(0.3, Math.min(3, zoom * Math.pow(factor, 0.6)));
+    // Solo con UNA mano visible y sin pellizcar: la separación entre
+    // pulgar e índice controla el zoom directamente (más cómodo que tener
+    // que acercar/alejar la mano de la cámara), y el ángulo de la mano
+    // controla la rotación del grafo — ambos a la vez, son gestos
+    // independientes (uno es distancia entre dedos, el otro es orientación
+    // de la muñeca) así que no se pelean entre sí.
+    if (entradas.length !== 1) {
+      anguloAnteriorPorIndice[idx] = null;
+      return;
+    }
+
+    if (typeof entrada.distanciaDedos === 'number') {
+      const objetivoZoom = mapearRango(entrada.distanciaDedos, DISTANCIA_DEDOS_ZOOM_MIN, DISTANCIA_DEDOS_ZOOM_MAX, ZOOM_MIN, ZOOM_MAX);
+      zoom += (objetivoZoom - zoom) * 0.3;
+    }
+
+    if (typeof entrada.angulo === 'number') {
+      if (anguloAnteriorPorIndice[idx] !== null) {
+        const delta = normalizarAngulo(entrada.angulo - anguloAnteriorPorIndice[idx]);
+        rotacionGrafo += delta * 0.8;
       }
-      tamanoAnteriorPorIndice[idx] = entrada.tamano;
-    } else {
-      tamanoAnteriorPorIndice[idx] = null;
+      anguloAnteriorPorIndice[idx] = entrada.angulo;
     }
   });
 }
@@ -466,7 +513,8 @@ let appNativaConectada = false;
 setInterval(() => {
   fetch('/grafico-obsidian/gesto').then((r) => r.json()).then((datos) => {
     manosNativas = (datos.manos || []).map((m) => ({
-      x: m.x * canvas.width, y: m.y * canvas.height, pinzando: !!m.pinzando, tamano: m.tamano || 0,
+      x: m.x * canvas.width, y: m.y * canvas.height, pinzando: !!m.pinzando,
+      distanciaDedos: m.distanciaDedos || 0, angulo: typeof m.angulo === 'number' ? m.angulo : null,
     }));
     appNativaConectada = datos.activa;
   }).catch(() => { appNativaConectada = false; });
@@ -501,13 +549,21 @@ function onResultadosManos(resultados) {
       const yPulgar = pulgar.y * canvas.height;
       const distPinza = Math.hypot(xIndice - xPulgar, yIndice - yPulgar);
 
-      // Tamaño de la mano en el cuadro (muñeca a base del dedo medio, en
-      // espacio normalizado 0..1) — más grande cuanto más cerca de la
-      // cámara la tengas. Sirve como "control de zoom" con una sola mano.
-      const muneca = puntos[0], baseMedio = puntos[9];
-      const tamanoMano = Math.hypot(baseMedio.x - muneca.x, baseMedio.y - muneca.y);
+      // Separación pulgar-índice en espacio NORMALIZADO (0..1, no píxeles):
+      // la distancia no cambia al espejar, así que se puede calcular directo
+      // de los landmarks crudos. Controla el zoom con la mano abierta.
+      const distanciaDedos = Math.hypot(pulgar.x - indice.x, pulgar.y - indice.y);
 
-      manosActuales.push({ x: xIndice, y: yIndice, pinzando: distPinza < UMBRAL_PINZA_PX, tamano: tamanoMano });
+      // Ángulo de la mano (muñeca -> base del dedo medio), espejado igual
+      // que x/y arriba para que gire "hacia el mismo lado" que se ve en
+      // pantalla. Controla la rotación del grafo.
+      const muneca = puntos[0], baseMedio = puntos[9];
+      const angulo = Math.atan2(baseMedio.y - muneca.y, muneca.x - baseMedio.x);
+
+      manosActuales.push({
+        x: xIndice, y: yIndice, pinzando: distPinza < UMBRAL_PINZA_PX,
+        distanciaDedos, angulo,
+      });
     }
   }
 }
@@ -590,11 +646,23 @@ if (MotorVozNota) {
     botonAgregarNota.classList.remove('escuchando');
   };
   reconocedorNota.onresult = (ev) => guardarNotaDictada(ev.results[0][0].transcript);
-  reconocedorNota.onerror = (ev) => mostrarAvisoNota('No pude escucharte (' + ev.error + ').');
+  reconocedorNota.onerror = (ev) => {
+    // "network" en Brave casi siempre significa que Shields bloqueó el
+    // servicio de reconocimiento de voz de Google (Brave no trae la API
+    // key propietaria que ese servicio necesita) — no es un bug de Jarvis,
+    // es una limitación del navegador. Otros valores (ej. "not-allowed")
+    // sí son de permiso de micrófono, revisables en la consola.
+    console.error('[Jarvis] Error de dictado (revisa Brave Shields si dice "network"):', ev.error);
+    mostrarAvisoNota('No pude escucharte (' + ev.error + ').');
+  };
 
   botonAgregarNota.addEventListener('click', () => {
     if (escuchandoNota) { reconocedorNota.stop(); return; }
-    try { reconocedorNota.start(); } catch (e) { /* ya estaba iniciando */ }
+    try {
+      reconocedorNota.start();
+    } catch (e) {
+      console.error('[Jarvis] No pude iniciar el dictado:', e);
+    }
   });
 } else {
   botonAgregarNota.disabled = true;
