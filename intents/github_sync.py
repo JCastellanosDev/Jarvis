@@ -1,10 +1,15 @@
 """Sincroniza tus repos de GitHub en segundo plano — puede tardar, así que no
-bloquea a Jarvis: responde de inmediato y avisa por voz cuando termina."""
+bloquea a Jarvis: responde de inmediato y avisa por voz cuando termina.
+
+Depende de la interfaz `ControlVersiones` (core/integraciones.py), no
+directo de skills.github_sync — si GitHub cambia su API, o el día de
+mañana se agrega otro hosting (GitLab, etc.), este intent no se toca, solo
+la implementación inyectada."""
 
 import threading
 
+from core.integraciones import ControlVersiones, GitHubGit
 from core.texto import normalizar
-from skills.github_sync import sincronizar_repos
 
 from .base import Intent
 
@@ -15,12 +20,15 @@ FRASES_SYNC = {
 
 
 class GithubSyncIntent(Intent):
+    def __init__(self, control_versiones: ControlVersiones = None):
+        self._control_versiones = control_versiones or GitHubGit()
+
     def manejar(self, texto, ctx):
         if normalizar(texto) not in FRASES_SYNC:
             return None
 
         def _tarea():
-            resultado = sincronizar_repos()
+            resultado = self._control_versiones.sincronizar()
             with ctx.lock:
                 ctx.hablante.hablar(resultado)
 

@@ -9,7 +9,15 @@ sigue su flujo normal hacia el LLM conversacional.
 import re
 import unicodedata
 
-from . import dev_entorno, git_automation, melo_db, habitos, entretenimiento, equipo
+from core.integraciones import GitHubGit
+
+from . import dev_entorno, melo_db, habitos, entretenimiento, equipo
+
+# Mismo patrón de inyección que ruta_repo/pedir_texto_por_voz en `ctx`: si
+# jarvis.py pone "control_versiones" en ctx_skills, se usa esa instancia
+# (permite swapear la implementación real de GitHub, ej. en tests); si no,
+# cae en la real. Ver core/integraciones.py.
+_CONTROL_VERSIONES_POR_DEFECTO = GitHubGit()
 
 
 def _normalizar(texto):
@@ -38,7 +46,8 @@ COMANDOS_SIMPLES = [
     ),
     (
         ("sube los cambios a github", "sube los cambios a git", "sube cambios a github", "sube el proyecto a github"),
-        lambda ctx: git_automation.subir_cambios_github(ctx["ruta_repo"], ctx["pedir_texto_por_voz"]),
+        lambda ctx: ctx.get("control_versiones", _CONTROL_VERSIONES_POR_DEFECTO)
+            .subir_cambios(ctx["ruta_repo"], ctx["pedir_texto_por_voz"]),
     ),
     (
         ("revisa el estado de melo", "estado de melo", "como va melo", "como esta melo"),

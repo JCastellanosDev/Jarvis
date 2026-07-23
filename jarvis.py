@@ -14,6 +14,7 @@ from core.config import Settings, VOCES_DISPONIBLES
 from core.contexto import IntentContext
 from core.eco import es_eco_de_si_mismo
 from core.hablante import Hablante
+from core.integraciones import GitHubGit, WhatsAppDesktop
 from core.memoria import MemoriaPersistente
 from core.oyente import Oyente
 from core.patrones import RegistradorPatrones
@@ -75,7 +76,7 @@ def construir_enrutador():
         PatronesIntent(),
         RecordarIntent(),
         AgregarNotaIntent(),
-        WhatsAppIntent(),
+        WhatsAppIntent(WhatsAppDesktop()),
         DescargasIntent(),
         InstaladorIntent(),
         NotificacionesIntent(),
@@ -89,7 +90,7 @@ def construir_enrutador():
         # trataba de abrir una app inexistente con ese nombre.
         GraficoObsidianIntent(),
         AplicacionesIntent(),
-        GithubSyncIntent(),
+        GithubSyncIntent(GitHubGit()),
         ObsidianIntent(),
         BuscarCodigoIntent(),
         BusquedaWebIntent(),
@@ -162,10 +163,14 @@ def main():
     if memoria.hechos:
         print(f"[Jarvis] {len(memoria.hechos)} dato(s) permanentes cargados.")
 
+    control_versiones = GitHubGit()
     ctx_skills = {
         "ruta_repo": os.path.dirname(os.path.abspath(__file__)),
         "pedir_texto_por_voz": crear_pedir_texto_por_voz(hablante, oyente),
         "puerto_remoto": settings.puerto_remoto,
+        # Usado por skills/router.py ("sube los cambios a github") — ver
+        # core/integraciones.py para el porqué de esta capa.
+        "control_versiones": control_versiones,
     }
     ctx = IntentContext(
         hablante=hablante, memoria=memoria, cerebro=cerebro, ctx_skills=ctx_skills,
