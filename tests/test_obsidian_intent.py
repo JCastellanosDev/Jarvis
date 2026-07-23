@@ -21,7 +21,7 @@ def test_no_matchea_texto_sin_relacion():
 
 
 def test_frase_real_que_antes_fallaba():
-    with patch("intents.obsidian.buscar_en_obsidian") as mock_buscar:
+    with patch("intents.obsidian.buscar_semantico_en_notas") as mock_buscar:
         mock_buscar.return_value = "### Perfil\ncontenido"
         intent = ObsidianIntent()
         resultado = intent.manejar("accede a Obsidian para que me digas quién soy", ctx=_ctx_falso())
@@ -31,7 +31,7 @@ def test_frase_real_que_antes_fallaba():
 
 
 def test_quien_soy_directo_tambien_busca_perfil():
-    with patch("intents.obsidian.buscar_en_obsidian") as mock_buscar:
+    with patch("intents.obsidian.buscar_semantico_en_notas") as mock_buscar:
         mock_buscar.return_value = "### Perfil\ncontenido"
         intent = ObsidianIntent()
         intent.manejar("quien soy", ctx=_ctx_falso())
@@ -39,7 +39,7 @@ def test_quien_soy_directo_tambien_busca_perfil():
 
 
 def test_patrones_flexibles_de_acceso():
-    with patch("intents.obsidian.buscar_en_obsidian") as mock_buscar:
+    with patch("intents.obsidian.buscar_semantico_en_notas") as mock_buscar:
         mock_buscar.return_value = "### Nota\ncontenido"
         intent = ObsidianIntent()
         for frase in [
@@ -51,7 +51,7 @@ def test_patrones_flexibles_de_acceso():
 
 
 def test_sin_resultados_no_inventa_nada():
-    with patch("intents.obsidian.buscar_en_obsidian") as mock_buscar:
+    with patch("intents.obsidian.buscar_semantico_en_notas") as mock_buscar:
         mock_buscar.return_value = None
         intent = ObsidianIntent()
         resultado = intent.manejar("busca en obsidian sobre algo que no existe", ctx=_ctx_falso())

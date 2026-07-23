@@ -6,6 +6,10 @@ memoria_jarvis.json
 habitos.json
 patrones_jarvis.json
 
+# Índice de búsqueda semántica (embeddings de tus notas/código, se
+# reconstruye localmente con "reindexa mis notas" — no son datos fuente)
+indice_semantico/
+
 # Audio temporal / pruebas
 respuesta_jarvis.mp3
 prueba.wav

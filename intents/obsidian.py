@@ -2,6 +2,11 @@
 Obsidian primero y le pasa los fragmentos a Ollama como contexto (mismo
 patrón que BusquedaWebIntent, pero sobre tus .md en vez de internet).
 
+La búsqueda es semántica (embeddings vía core/busqueda_semantica.py) si ya
+corriste "reindexa mis notas" al menos una vez; si no, o si Ollama no
+responde, cae sola al match por palabra clave de siempre — nunca se queda
+sin poder buscar.
+
 Los patrones son deliberadamente flexibles (mismo aprendizaje que con
 WhatsApp): frases naturales como "accede a Obsidian para que me digas quién
 soy" no coinciden con un patrón rígido tipo "busca en mis notas sobre X" —
@@ -10,8 +15,8 @@ esta capacidad y alucina que "no puede acceder"."""
 
 import re
 
+from core.busqueda_semantica import buscar_semantico_en_notas
 from core.texto import normalizar
-from skills.obsidian import buscar_en_obsidian
 
 from .base import Intent
 
@@ -50,7 +55,7 @@ class ObsidianIntent(Intent):
                 consulta = CONSULTA_QUIEN_SOY
 
         print("[Jarvis] Buscando en tus notas de Obsidian...")
-        contexto = buscar_en_obsidian(consulta)
+        contexto = buscar_semantico_en_notas(consulta)
         if contexto is None:
             return f"No encontré nada en tus notas sobre {consulta}."
 

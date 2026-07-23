@@ -1,11 +1,14 @@
 """Si pides ayuda programando algo, busca primero en tu propio código (ya
 sincronizado de GitHub) y se lo pasa a Ollama como referencia de tu estilo,
-mismo patrón que BusquedaWebIntent/ObsidianIntent."""
+mismo patrón que BusquedaWebIntent/ObsidianIntent.
+
+Búsqueda semántica (ver core/busqueda_semantica.py) si ya reindexaste al
+menos una vez; si no, cae sola al match por palabra clave de siempre."""
 
 import re
 
+from core.busqueda_semantica import buscar_semantico_en_codigo
 from core.texto import normalizar
-from skills.github_sync import buscar_en_mi_codigo
 
 from .base import Intent
 
@@ -25,7 +28,7 @@ class BuscarCodigoIntent(Intent):
             return None
 
         print("[Jarvis] Buscando en tu código de GitHub...")
-        contexto = buscar_en_mi_codigo(consulta)
+        contexto = buscar_semantico_en_codigo(consulta)
         if contexto is None:
             # Sin coincidencias en tu código: igual responde, solo que sin
             # ese contexto extra (puede que aún no hayas sincronizado nada).

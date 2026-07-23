@@ -41,6 +41,7 @@ from intents.notificaciones import NotificacionesIntent
 from intents.obsidian import ObsidianIntent
 from intents.patrones import PatronesIntent
 from intents.recordar import RecordarIntent
+from intents.reindexar import ReindexarIntent
 from intents.repetir import RepetirIntent
 
 from skills.herramientas_agente import HERRAMIENTAS
@@ -91,6 +92,7 @@ def construir_enrutador():
         GraficoObsidianIntent(),
         AplicacionesIntent(),
         GithubSyncIntent(GitHubGit()),
+        ReindexarIntent(),
         ObsidianIntent(),
         BuscarCodigoIntent(),
         BusquedaWebIntent(),
