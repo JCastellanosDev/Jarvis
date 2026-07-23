@@ -21,6 +21,14 @@ class Settings:
     elevenlabs_api_key: str
     voice_id: str
     modelo_ollama: str
+    # Modelo aparte SOLO para decidir si usar una herramienta (respaldo
+    # agéntico de ChatGeneralIntent, ver core/cerebro.py). None = usa
+    # modelo_ollama para todo, como antes. Probado en vivo: llama3.2:3b (el
+    # modelo rápido de siempre) acierta 2/5 en cuándo usar una herramienta;
+    # qwen2.5:7b-instruct acierta 4/5 — más lento, pero solo se usa en esta
+    # decisión puntual, no en cada respuesta. Configurable con
+    # MODELO_OLLAMA_HERRAMIENTAS en tu .env si quieres esa precisión extra.
+    modelo_herramientas: str = None
     memoria_file: str = "memoria_jarvis.json"
     # Ventana enviada al LLM en cada turno (el historial completo nunca se
     # recorta). Bajado de 10 a 4: con un modelo tan chico (llama3.2:1b),
@@ -57,6 +65,7 @@ class Settings:
             elevenlabs_api_key=api_key,
             voice_id=os.getenv("VOICE_ID") or VOCES_DISPONIBLES[VOZ_POR_DEFECTO],
             modelo_ollama=os.getenv("MODELO_OLLAMA", "llama3.2:3b"),
+            modelo_herramientas=os.getenv("MODELO_OLLAMA_HERRAMIENTAS") or None,
             max_turnos_contexto=int(os.getenv("MAX_TURNOS_CONTEXTO", "4")),
             puerto_remoto=int(os.getenv("JARVIS_REMOTE_PORT", "5005")),
             token_remoto=os.getenv("JARVIS_REMOTE_TOKEN") or None,

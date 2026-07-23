@@ -41,6 +41,8 @@ from intents.obsidian import ObsidianIntent
 from intents.patrones import PatronesIntent
 from intents.recordar import RecordarIntent
 from intents.repetir import RepetirIntent
+
+from skills.herramientas_agente import HERRAMIENTAS
 from intents.video import VideoIntent
 from intents.vision import VisionIntent
 from intents.volumen import VolumenIntent
@@ -147,7 +149,9 @@ def main():
     )
     oyente = Oyente()
     memoria = MemoriaPersistente(settings.memoria_file, settings.max_turnos_contexto)
-    cerebro = CerebroOllama(settings.modelo_ollama)
+    cerebro = CerebroOllama(
+        settings.modelo_ollama, herramientas=HERRAMIENTAS, modelo_herramientas=settings.modelo_herramientas,
+    )
     registrador_patrones = RegistradorPatrones()
 
     if memoria.historial_completo:

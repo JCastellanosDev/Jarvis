@@ -31,6 +31,11 @@ def memoria_temporal():
 def cerebro_falso():
     cerebro = MagicMock()
     cerebro.responder.side_effect = lambda prompt, mem, **kw: f"[LLM MOCK] {prompt}"
+    # ChatGeneralIntent llama a esta variante (con respaldo de herramientas);
+    # se mockea igual que .responder para que cualquier test que dependa del
+    # fixture compartido `ctx` siga recibiendo un string previsible sin
+    # importar cuál de las dos use el intent.
+    cerebro.responder_con_herramientas.side_effect = lambda prompt, mem, **kw: f"[LLM MOCK] {prompt}"
     return cerebro
 
 
